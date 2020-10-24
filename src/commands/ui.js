@@ -30,7 +30,7 @@ class UICommand extends Command {
     }
   }
 }
-UICommand.description = `Describe the command here
+UICommand.description = `Abre nuestro libro sakrado en tu navegador
 ...
 Comando para abrir el koram
 `;

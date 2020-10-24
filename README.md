@@ -1,9 +1,7 @@
-koram
+Koram
 =====
 
 El Libro Sakrado del Wen Komarquino
-
-[![oclif](https://img.shields.io/badge/cli-oclif-brightgreen.svg)](https://oclif.io)
 [![Version](https://img.shields.io/npm/v/koram.svg)](https://npmjs.org/package/koram)
 [![Downloads/week](https://img.shields.io/npm/dw/koram.svg)](https://npmjs.org/package/koram)
 [![License](https://img.shields.io/npm/l/koram.svg)](https://github.com/OTROS/koram/blob/master/package.json)
@@ -46,8 +44,6 @@ ARGUMENTS
 OPTIONS
   --all  see all commands in CLI
 ```
-
-_See code: [@oclif/plugin-help](https://github.com/oclif/plugin-help/blob/v3.2.0/src/commands/help.ts)_
 
 ## `koram login`
 

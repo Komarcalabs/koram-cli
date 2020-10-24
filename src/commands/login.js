@@ -6,7 +6,7 @@ class LoginCommand extends Command {
     console.log(`Hola ${user}, este flujo aún esta en configuración`)
   }
 }
-LoginCommand.description = `Describe the command here
+LoginCommand.description = `Logueate como wen komarquino
 ...
 Comando de login en la plataforma koram
 `
