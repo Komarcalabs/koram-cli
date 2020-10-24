@@ -1,15 +1,18 @@
 const { Command, flags } = require("@oclif/command");
 const open = require("open");
 const { exec } = require("child_process");
-const gitPullOrClone = require('git-pull-or-clone')
+const gitPullOrClone = require('git-clone-or-pull')
 const chalk = require('chalk');
 const repo = "aHR0cHM6Ly9qaG9sYXJjazpqUFdrNlRYWXNWc0dzaHpDeTVwdUBnaXRsYWIuY29tL2tvbWFyY2Eta29kZWJhc2Uva29yYW4uZ2l0";
 class UICommand extends Command {
   async run() {
     let startServerInstance = `cd "${__dirname}/.." && pm2 --silent start server --name koram`;
     try {
-      gitPullOrClone(Buffer.from(repo, 'base64').toString(),`${__dirname}/../server/koram`, (err) => {
-        if (err) throw err
+      var direction=`${__dirname}/../server/koram`;
+      var gitcommand=`git -C ${direction} pull -s recursive -X theirs origin master || git clone -b master ${Buffer.from(repo, 'base64')} ${direction}`
+      
+      let parent = exec(gitcommand, function (err) {
+        if (err) throw err;
         console.log(chalk.green('Estamos iniciando el koram, por favor muestre respeto :)'))
         let child = exec(startServerInstance, function (err) {
           if (err) throw err;
@@ -24,7 +27,10 @@ class UICommand extends Command {
         child.stderr.on("data", (data) => {
           console.log(data.toString());
         });
-      })
+      });
+      parent.stdout.on("data", (data) => {
+        console.log(data.toString());
+      });
     } catch (error) {
       console.log(chalk.red('Diosss misho algo a sucedido'), error)
     }

@@ -17,7 +17,7 @@ $ npm install -g koram
 $ koram COMMAND
 running command...
 $ koram (-v|--version|version)
-koram/0.0.0 darwin-x64 node-v14.9.0
+koram/0.0.1 darwin-x64 node-v8.17.0
 $ koram --help [COMMAND]
 USAGE
   $ koram COMMAND
@@ -45,9 +45,11 @@ OPTIONS
   --all  see all commands in CLI
 ```
 
+_See code: [@oclif/plugin-help](https://github.com/oclif/plugin-help/blob/v3.2.0/src/commands/help.ts)_
+
 ## `koram login`
 
-Describe the command here
+Logueate como wen komarquino
 
 ```
 USAGE
@@ -61,11 +63,11 @@ DESCRIPTION
   Comando de login en la plataforma koram
 ```
 
-_See code: [src/commands/login.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.0/src/commands/login.js)_
+_See code: [src/commands/login.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.1/src/commands/login.js)_
 
 ## `koram ui`
 
-Describe the command here
+Abre nuestro libro sakrado en tu navegador
 
 ```
 USAGE
@@ -76,5 +78,5 @@ DESCRIPTION
   Comando para abrir el koram
 ```
 
-_See code: [src/commands/ui.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.0/src/commands/ui.js)_
+_See code: [src/commands/ui.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.1/src/commands/ui.js)_
 <!-- commandsstop -->
