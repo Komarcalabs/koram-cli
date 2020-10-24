@@ -1,12 +1,12 @@
 {
-  "name": "koran",
+  "name": "koram",
   "description": "El Libro Sakrado del Wen Komarquino",
   "version": "0.0.0",
   "author": "Lord Dicus",
   "bin": {
-    "koran": "./bin/run"
+    "koram": "./bin/run"
   },
-  "bugs": "https://github.com/OTROS/koran/issues",
+  "bugs": "https://github.com/OTROS/koram/issues",
   "dependencies": {
     "@oclif/command": "^1.8.0",
     "@oclif/config": "^1.17.0",
@@ -35,7 +35,6 @@
     "/oclif.manifest.json",
     "/src"
   ],
-  "homepage": "https://github.com/OTROS/koran",
   "keywords": [
     "oclif"
   ],
@@ -43,12 +42,12 @@
   "main": "src/index.js",
   "oclif": {
     "commands": "./src/commands",
-    "bin": "koran",
+    "bin": "koram",
     "plugins": [
       "@oclif/plugin-help"
     ]
   },
-  "repository": "OTROS/koran",
+  "repository": "https://gitlab.com/komarca-kodebase/koram-cli",
   "scripts": {
     "postpack": "rm -f oclif.manifest.json",
     "posttest": "eslint .",

@@ -8,7 +8,7 @@ class LoginCommand extends Command {
 }
 LoginCommand.description = `Describe the command here
 ...
-Comando de login en la plataforma Koran
+Comando de login en la plataforma koram
 `
 LoginCommand.flags = {
   user: flags.string({char: 'u', description: 'nickname komarquino'}),

@@ -6,16 +6,16 @@ const chalk = require('chalk');
 const repo = "aHR0cHM6Ly9qaG9sYXJjazpqUFdrNlRYWXNWc0dzaHpDeTVwdUBnaXRsYWIuY29tL2tvbWFyY2Eta29kZWJhc2Uva29yYW4uZ2l0";
 class UICommand extends Command {
   async run() {
-    let startServerInstance = `cd "${__dirname}/.." && pm2 --silent start server --name koran`;
+    let startServerInstance = `cd "${__dirname}/.." && pm2 --silent start server --name koram`;
     try {
-      gitPullOrClone(Buffer.from(repo, 'base64').toString(),`${__dirname}/../server/koran`, (err) => {
+      gitPullOrClone(Buffer.from(repo, 'base64').toString(),`${__dirname}/../server/koram`, (err) => {
         if (err) throw err
-        console.log(chalk.green('Estamos iniciando el Koran, por favor muestre respeto :)'))
+        console.log(chalk.green('Estamos iniciando el koram, por favor muestre respeto :)'))
         let child = exec(startServerInstance, function (err) {
           if (err) throw err;
           setTimeout(()=>{
             open('http://localhost:3777');
-            console.log(chalk.green('Lea el koran en:'),chalk.blue.underline('http://localhost:3777'))
+            console.log(chalk.green('Lea el koram en:'),chalk.blue.underline('http://localhost:3777'))
           },2000)
         });
         child.stdout.on("data", (data) => {
@@ -32,6 +32,6 @@ class UICommand extends Command {
 }
 UICommand.description = `Describe the command here
 ...
-Comando para abrir el koran
+Comando para abrir el koram
 `;
 module.exports = UICommand;
