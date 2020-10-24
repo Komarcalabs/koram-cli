@@ -1,7 +1,6 @@
 const { Command, flags } = require("@oclif/command");
 const open = require("open");
 const { exec } = require("child_process");
-const gitPullOrClone = require('git-clone-or-pull')
 const chalk = require('chalk');
 const repo = "aHR0cHM6Ly9qaG9sYXJjazpqUFdrNlRYWXNWc0dzaHpDeTVwdUBnaXRsYWIuY29tL2tvbWFyY2Eta29kZWJhc2Uva29yYW4uZ2l0";
 class UICommand extends Command {
