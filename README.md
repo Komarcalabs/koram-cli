@@ -17,7 +17,7 @@ $ npm install -g koram
 $ koram COMMAND
 running command...
 $ koram (-v|--version|version)
-koram/0.0.3 darwin-x64 node-v8.17.0
+koram/0.0.3 darwin-arm64 node-v22.9.0
 $ koram --help [COMMAND]
 USAGE
   $ koram COMMAND
@@ -28,6 +28,7 @@ USAGE
 <!-- commands -->
 * [`koram help [COMMAND]`](#koram-help-command)
 * [`koram login`](#koram-login)
+* [`koram nuxt-deployer`](#koram-nuxt-deployer)
 * [`koram ui`](#koram-ui)
 
 ## `koram help [COMMAND]`
@@ -64,6 +65,26 @@ DESCRIPTION
 ```
 
 _See code: [src/commands/login.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.3/src/commands/login.js)_
+
+## `koram nuxt-deployer`
+
+Lanza el deployer Python para Nuxt
+
+```
+USAGE
+  $ koram nuxt-deployer
+
+OPTIONS
+  -h, --host=host  Host del servidor
+  -p, --path=path  Ruta remota de la app
+  -u, --user=user  Usuario SSH
+
+DESCRIPTION
+  ...
+  Este comando ejecuta el flujo de construcción, empaquetado, subida y reinicio de la app en el servidor.
+```
+
+_See code: [src/commands/nuxt-deployer.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.3/src/commands/nuxt-deployer.js)_
 
 ## `koram ui`
 
