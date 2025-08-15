@@ -53,6 +53,6 @@
     "prepack": "oclif-dev manifest && oclif-dev readme",
     "test": "nyc mocha --forbid-only \"test/**/*.test.js\"",
     "version": "oclif-dev readme && git add README.md",
-    "postinstall": "python3 -m venv venv && source venv/bin/activate && python3 -m pip install -r src/python-deployer/requirements.txt"
+    "postinstall": "python3 -m venv venv && venv/bin/pip install -r src/python-deployer/requirements.txt"
   }
 }
