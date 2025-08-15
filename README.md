@@ -17,7 +17,7 @@ $ npm install -g koram
 $ koram COMMAND
 running command...
 $ koram (-v|--version|version)
-koram/0.0.3 darwin-arm64 node-v22.9.0
+koram/0.0.4 darwin-arm64 node-v22.9.0
 $ koram --help [COMMAND]
 USAGE
   $ koram COMMAND
@@ -64,7 +64,7 @@ DESCRIPTION
   Comando de login en la plataforma koram
 ```
 
-_See code: [src/commands/login.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.3/src/commands/login.js)_
+_See code: [src/commands/login.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.4/src/commands/login.js)_
 
 ## `koram nuxt-deploy`
 
@@ -83,7 +83,7 @@ DESCRIPTION
   Este comando ejecuta el flujo de construcción, empaquetado, subida y reinicio de la app en el servidor.
 ```
 
-_See code: [src/commands/nuxt-deploy.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.3/src/commands/nuxt-deploy.js)_
+_See code: [src/commands/nuxt-deploy.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.4/src/commands/nuxt-deploy.js)_
 
 ## `koram ui`
 
@@ -98,5 +98,5 @@ DESCRIPTION
   Comando para abrir el koram
 ```
 
-_See code: [src/commands/ui.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.3/src/commands/ui.js)_
+_See code: [src/commands/ui.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.4/src/commands/ui.js)_
 <!-- commandsstop -->
