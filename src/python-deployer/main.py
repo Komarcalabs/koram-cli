@@ -20,10 +20,11 @@ class DeployWorker(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool)
 
-    def __init__(self, host, user, remote_path, appname, app_port, rc_path, build_env, env_vars, use_pm2, pre_command):
+    def __init__(self, host, user, password, remote_path, appname, app_port, rc_path, build_env, env_vars, use_pm2, pre_command):
         super().__init__()
         self.host = host
         self.user = user
+        self.password = password
         self.remote_path = remote_path
         self.appname = appname
         self.app_port = app_port
@@ -42,7 +43,6 @@ class DeployWorker(QThread):
             for k, v in self.env_vars.items():
                 env[k] = v
 
-            # Log versión de Node local
             result = subprocess.run(["node", "-v"], capture_output=True, text=True)
             self.log(f"🔹 Node.js versión local: {result.stdout.strip()}")
 
@@ -55,7 +55,6 @@ class DeployWorker(QThread):
                 self.finished_signal.emit(False)
                 return
 
-            # Limpiar node_modules nativos del build
             server_node_modules = os.path.join(output_dir, "server", "node_modules")
             if os.path.exists(server_node_modules):
                 self.log("🧹 Limpiando node_modules nativos del build local...")
@@ -71,7 +70,12 @@ class DeployWorker(QThread):
             self.log(f"🔌 Conectando a {self.host}...")
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            ssh.connect(self.host, username=self.user, timeout=15)
+
+            # Si el campo contraseña está vacío → intentará solo con clave SSH
+            if self.password:
+                ssh.connect(self.host, username=self.user, password=self.password, timeout=15)
+            else:
+                ssh.connect(self.host, username=self.user, timeout=15)
 
             self.log("📁 Asegurando carpeta remota...")
             ssh.exec_command(f"mkdir -p {self.remote_path}")
@@ -80,7 +84,6 @@ class DeployWorker(QThread):
             with SCPClient(ssh.get_transport()) as scp:
                 scp.put("nuxt-output.tar.gz", self.remote_path)
 
-            # --- Crear archivo .env remoto ---
             self.log("📝 Creando archivo .env remoto...")
             env_lines = [f'{k}="{v}"' for k, v in self.env_vars.items()]
             env_lines.append(f'PORT={self.app_port}')
@@ -92,7 +95,6 @@ class DeployWorker(QThread):
                 f.write(env_content)
             sftp.close()
 
-            # --- Comandos remotos ---
             self.log("⚙️ Ejecutando comandos en servidor...")
 
             remote_cmds = f"cd {self.remote_path} && "
@@ -104,12 +106,10 @@ class DeployWorker(QThread):
                 "tar -xzf nuxt-output.tar.gz && "
                 "npm ci --omit=dev && "
                 "npm rebuild --update-binary && "
-                # Exportar variables del .env antes de ejecutar
                 "export $(cat .env | xargs) && "
             )
 
             if self.use_pm2:
-                # PM2 tomará las variables exportadas
                 remote_cmds += (
                     f"pm2 restart {self.appname} --update-env || "
                     f"pm2 start .output/server/index.mjs --name {self.appname} --env production"
@@ -117,7 +117,6 @@ class DeployWorker(QThread):
             else:
                 remote_cmds += "node .output/server/index.mjs"
 
-            # Log versión de Node remoto antes de ejecutar la app
             stdin, stdout, stderr = ssh.exec_command("node -v && " + remote_cmds, get_pty=True)
             for line in iter(stdout.readline, ""):
                 if line:
@@ -145,12 +144,12 @@ class DeployerApp(QWidget):
 
         main_layout = QVBoxLayout()
 
-        # --- Selector de RC ---
+        # --- Selector RC ---
         self.rc_selector = QComboBox()
         main_layout.addWidget(QLabel("Seleccionar configuración (.koram-rc):"))
         main_layout.addWidget(self.rc_selector)
 
-        # --- Configuración de servidor ---
+        # --- Usuario y Host ---
         server_layout1 = QHBoxLayout()
         self.user_input = QLineEdit(); self.user_input.setPlaceholderText("Usuario SSH")
         self.host_input = QLineEdit(); self.host_input.setPlaceholderText("IP / Host")
@@ -158,6 +157,15 @@ class DeployerApp(QWidget):
         server_layout1.addWidget(self.host_input, 70)
         main_layout.addLayout(server_layout1)
 
+        # --- Contraseña opcional ---
+        pwd_layout = QHBoxLayout()
+        self.password_input = QLineEdit(); self.password_input.setPlaceholderText("Contraseña SSH (opcional)")
+        self.password_input.setEchoMode(QLineEdit.Password)
+        pwd_layout.addWidget(QLabel("Contraseña:"))
+        pwd_layout.addWidget(self.password_input)
+        main_layout.addLayout(pwd_layout)
+
+        # --- Ruta remota ---
         server_layout2 = QHBoxLayout()
         self.path_input = QLineEdit(); self.path_input.setPlaceholderText("Ruta remota")
         server_layout2.addWidget(QLabel("Ruta remota:"))
@@ -166,16 +174,16 @@ class DeployerApp(QWidget):
 
         # --- Pre-command ---
         pre_layout = QHBoxLayout()
-        self.pre_cmd_input = QLineEdit(); self.pre_cmd_input.setPlaceholderText("Comando a ejecutar al conectarse (ej: nvm use 20)")
+        self.pre_cmd_input = QLineEdit(); self.pre_cmd_input.setPlaceholderText("Comando previo (ej: nvm use 20)")
         pre_layout.addWidget(QLabel("Comando previo:"))
         pre_layout.addWidget(self.pre_cmd_input)
         main_layout.addLayout(pre_layout)
 
-        # --- Nombre de app + entorno de build + puerto ---
+        # --- App, entorno y puerto ---
         app_layout = QHBoxLayout()
         self.appname_input = QLineEdit(); self.appname_input.setPlaceholderText("Nombre app")
         self.build_env_selector = QComboBox()
-        self.port_build_input = QLineEdit(); self.port_build_input.setPlaceholderText("Puerto de la app")
+        self.port_build_input = QLineEdit(); self.port_build_input.setPlaceholderText("Puerto")
         app_layout.addWidget(QLabel("App:"))
         app_layout.addWidget(self.appname_input, 40)
         app_layout.addWidget(QLabel("Entorno build:"))
@@ -184,7 +192,7 @@ class DeployerApp(QWidget):
         app_layout.addWidget(self.port_build_input, 20)
         main_layout.addLayout(app_layout)
 
-        # --- Tabla de variables de entorno ---
+        # --- Tabla env ---
         self.env_table = QTableWidget()
         self.env_table.setColumnCount(2)
         self.env_table.setHorizontalHeaderLabels(["KEY", "VALUE"])
@@ -199,23 +207,20 @@ class DeployerApp(QWidget):
         self.env_table.resizeEvent = lambda event: resize_columns()
         resize_columns()
 
-        # Botones de agregar / eliminar variables
-        buttons_layout = QHBoxLayout()
+        btns_layout = QHBoxLayout()
         add_btn = QPushButton("Agregar")
         add_btn.clicked.connect(self.add_env_row)
         remove_btn = QPushButton("Eliminar")
         remove_btn.clicked.connect(self.remove_env_row)
-        buttons_layout.addWidget(add_btn)
-        buttons_layout.addWidget(remove_btn)
-        main_layout.addLayout(buttons_layout)
+        btns_layout.addWidget(add_btn)
+        btns_layout.addWidget(remove_btn)
+        main_layout.addLayout(btns_layout)
 
-        # --- Usar PM2 ---
         self.use_pm2_selector = QComboBox()
         self.use_pm2_selector.addItems(["Sí", "No"])
         main_layout.addWidget(QLabel("Usar PM2?"))
         main_layout.addWidget(self.use_pm2_selector)
 
-        # --- Logs y deploy ---
         self.log_output = QTextEdit(); self.log_output.setReadOnly(True)
         deploy_btn = QPushButton("Deploy")
         deploy_btn.clicked.connect(self.deploy)
@@ -224,7 +229,7 @@ class DeployerApp(QWidget):
 
         self.setLayout(main_layout)
 
-        # --- Detectar RC y env usando glob ---
+        # --- Detectar archivos ---
         self.rc_files = glob.glob(".koram-rc*")
         if not self.rc_files:
             self.rc_files = ['.koram-rc.default']
@@ -258,12 +263,12 @@ class DeployerApp(QWidget):
                 rc_data = json.load(f)
             self.user_input.setText(rc_data.get('user', ''))
             self.host_input.setText(rc_data.get('host', ''))
+            self.password_input.setText(rc_data.get('password', ''))
             self.path_input.setText(rc_data.get('remote_path', ''))
             self.appname_input.setText(rc_data.get('app_name', ''))
             self.port_build_input.setText(str(rc_data.get('port_build', '3000')))
             self.pre_cmd_input.setText(rc_data.get('pre_command', ''))
 
-            # Cargar environment
             self.env_table.setRowCount(0)
             env_vars = rc_data.get('environment', {})
             for k, v in env_vars.items():
@@ -280,6 +285,7 @@ class DeployerApp(QWidget):
         host = self.host_input.text()
         app_port = self.port_build_input.text() or "3000"
         user = self.user_input.text()
+        password = self.password_input.text()
         remote_path = self.path_input.text()
         appname = self.appname_input.text()
         build_env_file = self.build_env_selector.currentText()
@@ -287,7 +293,6 @@ class DeployerApp(QWidget):
         use_pm2 = self.use_pm2_selector.currentText() == "Sí"
         pre_command = self.pre_cmd_input.text().strip()
 
-        # Variables de entorno desde la tabla
         env_vars = {}
         for row in range(self.env_table.rowCount()):
             key_item = self.env_table.item(row, 0)
@@ -298,11 +303,11 @@ class DeployerApp(QWidget):
                 if key:
                     env_vars[key] = val
 
-        # Guardar configuración en RC
         config = {
             "host": host,
             "port_build": app_port,
             "user": user,
+            "password": password,
             "remote_path": remote_path,
             "app_name": appname,
             "environment": env_vars,
@@ -312,8 +317,7 @@ class DeployerApp(QWidget):
             json.dump(config, f, indent=2)
         self.log(f"💾 Configuración guardada en {self.rc_path}")
 
-        # Ejecutar deploy
-        self.worker = DeployWorker(host, user, remote_path, appname, app_port, self.rc_path,
+        self.worker = DeployWorker(host, user, password, remote_path, appname, app_port, self.rc_path,
                                    build_env_name, env_vars, use_pm2, pre_command)
         self.worker.log_signal.connect(self.log)
         self.worker.finished_signal.connect(lambda success: self.log("✅ Deploy terminado." if success else "❌ Deploy fallido."))
