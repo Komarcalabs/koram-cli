@@ -5,6 +5,12 @@ import subprocess
 import paramiko
 import glob
 import re
+import base64
+import getpass
+import platform
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from scp import SCPClient
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
@@ -12,10 +18,43 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import QThread, pyqtSignal
 
+# ========= CIFRADO / DESCIFRADO =========
+def generate_key():
+    """Genera clave única basada en usuario y nombre del host."""
+    user = getpass.getuser()
+    hostname = platform.node()
+    salt = b"koram_static_salt"  # Mantener fija para consistencia
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=390000,
+    )
+    return base64.urlsafe_b64encode(kdf.derive(f"{user}@{hostname}".encode()))
+
+def encrypt_password(password: str) -> str:
+    """Cifra la contraseña."""
+    if not password:
+        return ""
+    f = Fernet(generate_key())
+    return f.encrypt(password.encode()).decode()
+
+def decrypt_password(encrypted_password: str) -> str:
+    """Descifra la contraseña."""
+    if not encrypted_password:
+        return ""
+    try:
+        f = Fernet(generate_key())
+        return f.decrypt(encrypted_password.encode()).decode()
+    except Exception:
+        return ""  # Si falla (otro usuario/pc), devolver vacío
+
+# ========= LIMPIEZA ANSI =========
 def clean_ansi(text):
     ansi_escape = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
     return ansi_escape.sub('', text)
 
+# ========= WORKER =========
 class DeployWorker(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool)
@@ -71,7 +110,6 @@ class DeployWorker(QThread):
             ssh = paramiko.SSHClient()
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-            # Si el campo contraseña está vacío → intentará solo con clave SSH
             if self.password:
                 ssh.connect(self.host, username=self.user, password=self.password, timeout=15)
             else:
@@ -101,9 +139,10 @@ class DeployWorker(QThread):
             if self.pre_command:
                 remote_cmds += f"{self.pre_command} && "
 
+            # 🔹 Limpia solo lo que viene en el build y sobreescribe lo demás
             remote_cmds += (
-                "rm -rf .output public package.json package-lock.json && "
-                "tar -xzf nuxt-output.tar.gz && "
+                "rm -rf .output public && "
+                "tar --overwrite -xzf nuxt-output.tar.gz && "
                 "npm ci --omit=dev && "
                 "npm rebuild --update-binary && "
                 "export $(cat .env | xargs) && "
@@ -135,7 +174,7 @@ class DeployWorker(QThread):
     def log(self, message):
         self.log_signal.emit(message)
 
-
+# ========= INTERFAZ =========
 class DeployerApp(QWidget):
     def __init__(self):
         super().__init__()
@@ -263,7 +302,7 @@ class DeployerApp(QWidget):
                 rc_data = json.load(f)
             self.user_input.setText(rc_data.get('user', ''))
             self.host_input.setText(rc_data.get('host', ''))
-            self.password_input.setText(rc_data.get('password', ''))
+            self.password_input.setText(decrypt_password(rc_data.get('password', '')))
             self.path_input.setText(rc_data.get('remote_path', ''))
             self.appname_input.setText(rc_data.get('app_name', ''))
             self.port_build_input.setText(str(rc_data.get('port_build', '3000')))
@@ -307,7 +346,7 @@ class DeployerApp(QWidget):
             "host": host,
             "port_build": app_port,
             "user": user,
-            "password": password,
+            "password": encrypt_password(password),  # Cifrado aquí
             "remote_path": remote_path,
             "app_name": appname,
             "environment": env_vars,
