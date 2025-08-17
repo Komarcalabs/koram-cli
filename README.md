@@ -18,7 +18,7 @@ koram/0.0.9 darwin-arm64 node-v22.9.0
 
 ---
 
-## El Camino del Wen Komarquino
+## El Camino del buen Komarquino
 Koram no es solo una herramienta; es un ritual, un compendio de poderes ancestrales para los que buscan la perfección en el desarrollo.  
 
 ## Instalación
@@ -27,8 +27,8 @@ Koram se instala globalmente mediante **npm**:
 
 ```bash
 npm i -g koram
-```
 
+```
 
 **Uso**:  
 ```
