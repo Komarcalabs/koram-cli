@@ -3,19 +3,18 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-class DeploySPACommand extends Command {
+class DeployCommand extends Command {
   async run() {
-    const { flags } = this.parse(DeploySPACommand);
+    const { flags } = this.parse(DeployCommand);
 
-    const cliRootPath = path.resolve(__dirname, '../../');
+    const cliRootPath = path.resolve(__dirname, '../../../');
     const venvPythonPath = path.join(cliRootPath, 'venv/bin/python3');
     if (!fs.existsSync(venvPythonPath)) {
       this.error('El entorno virtual de Python no se encontró. Asegúrate de haber ejecutado `npm install`.');
       return;
     }
 
-    // Ruta de tu nuevo script SPA
-    const deployerPath = path.join(cliRootPath, 'src/python-deployer/spa-deployer.py');
+    const deployerPath = path.join(cliRootPath, 'src/python-deployer/main.py');
 
     // Leer configuración del proyecto
     const projectRoot = process.cwd();
@@ -29,17 +28,17 @@ class DeploySPACommand extends Command {
     const host = flags.host || config.host || '';
     const user = flags.user || config.user || '';
     const remotePath = flags.path || config.remote_path || '';
-    const buildEnv = config.build_env || 'production';
+    const appName = config.app_name || '';
 
     // Ejecutar Python con variables de entorno
     const pyProcess = spawn(venvPythonPath, [deployerPath], {
       shell: true,
       env: { 
-        ...process.env,
-        HOST: host,
-        USER: user,
-        REMOTE_PATH: remotePath,
-        BUILD_ENV: buildEnv,
+        ...process.env, 
+        HOST: host, 
+        USER: user, 
+        REMOTE_PATH: remotePath, 
+        APP_NAME: appName,
         RC_PATH: rcPath // Pasamos la ruta del .koram-rc
       }
     });
@@ -47,20 +46,20 @@ class DeploySPACommand extends Command {
     pyProcess.stdout.on('data', (data) => process.stdout.write(data.toString()));
     pyProcess.stderr.on('data', (data) => process.stderr.write(data.toString()));
     pyProcess.on('close', (code) => {
-      if (code === 0) console.log('\n✅ Deploy SPA completado con éxito.');
-      else console.log(`\n❌ Deploy SPA finalizó con código ${code}`);
+      if (code === 0) console.log('\n✅ Deploy completado con éxito.');
+      else console.log(`\n❌ Deploy finalizó con código ${code}`);
     });
   }
 }
 
-DeploySPACommand.description = `Lanza el deployer Python para SPA
-Este comando ejecuta el build local, empaquetado, subida y despliegue de la SPA en el servidor.
+DeployCommand.description = `Lanza el deployer Python para Nuxt
+Este comando ejecuta el flujo de construcción, empaquetado, subida y reinicio de la app en el servidor.
 `;
 
-DeploySPACommand.flags = {
+DeployCommand.flags = {
   host: flags.string({ char: 'h', description: 'Host del servidor' }),
   user: flags.string({ char: 'u', description: 'Usuario SSH' }),
-  path: flags.string({ char: 'p', description: 'Ruta remota de la SPA' }),
+  path: flags.string({ char: 'p', description: 'Ruta remota de la app' }),
 };
 
-module.exports = DeploySPACommand;
+module.exports = DeployCommand;

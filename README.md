@@ -43,8 +43,9 @@ $ koram [COMMAND]
 |---------------|-------------|
 | **help**      | Muestra la guía de sabiduría de Koram. |
 | **login**     | Loguéate como un verdadero Wen Komarquino. |
-| **nuxt-deploy** | Invoca el deployer Python para proyectos Nuxt. |
-| **spa-deploy**  | Invoca el deployer Python para SPA. |
+| **deploy:init** | Inicializa el koram en tu proyecto. |
+| **deploy:nuxt** | Invoca el deployer Python para proyectos Nuxt. |
+| **deploy:spa**  | Invoca el deployer Python para SPA. |
 | **ui**        | Abre nuestro Libro Sagrado en tu navegador y contempla el poder del toolkit. |
 
 ---
