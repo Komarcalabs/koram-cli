@@ -69,6 +69,67 @@ $ koram [COMMAND]
 
 ---
 
+## Koram Deploy
+
+`koram deploy` permite realizar despliegues automáticos de tus proyectos usando alias de servidores y PM2.
+
+### Flujo de uso
+
+1. Guardar credencial(contraseñas) con alias:
+
+```bash
+koram creds:add <alias> --user <usuario> --host <ip_servidor>
+```
+
+2. Ejecutar deploy:
+
+```bash
+koram deploy <alias> [flags]
+```
+
+### Flags
+
+| Flag            | Descripción                                                |
+| --------------- | ---------------------------------------------------------- |
+| `-e, --env`     | Define el entorno a usar. Por defecto: `production`.       |
+| `-x, --extra`   | Parámetros extra opcionales para pasar a PM2.              |
+| `-k, --ssh-key` | Omitir la contraseña guardada y usar llave SSH autorizada. |
+
+### Ejemplos
+
+- Deploy usando la contraseña guardada:
+
+```bash
+koram deploy bb_server
+```
+
+- Deploy usando llave SSH:
+
+```bash
+koram deploy bb_server --ssh-key
+```
+
+- Deploy en otro entorno:
+
+```bash
+koram deploy bb_server --env staging
+```
+
+- Deploy con parámetros extra:
+
+```bash
+koram deploy bb_server --extra "--update-env"
+```
+
+### Comportamiento
+
+- Selecciona credencial automáticamente según alias.
+- Permite seleccionar entre múltiples credenciales o archivos `ecosystem.config.js`.
+- Muestra logs en tiempo real.
+- Compatible con deploy por contraseña o SSH key.
+
+
+
 ## El Legado Komarquino
 
 Koram es la llave que conecta el conocimiento de los antiguos con la tecnología moderna.\

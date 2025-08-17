@@ -1,91 +1,127 @@
+// src/commands/deploy.js
 const { Command, flags } = require('@oclif/command');
+const keytar = require('keytar');
 const fs = require('fs');
 const path = require('path');
-const inquirer = require('inquirer');
 const chalk = require('chalk');
-const { exec } = require('child_process');
-const keytar = require('keytar');
+const inquirer = require('inquirer');
+const { spawn } = require('child_process');
 
 class DeployCommand extends Command {
   async run() {
     const { args, flags } = this.parse(DeployCommand);
-    const env = args.environment;
-    if (!env) {
-      console.log(chalk.red('❌ Debes especificar un entorno: staging, production, etc.'));
+    const alias = args.alias;
+
+    if (!alias) {
+      console.log(chalk.red('❌ Debes indicar un alias de servidor para el deploy'));
       return;
     }
 
-    // Manejo de archivo ecosystem
-    let ecosystemFile = flags.ecosystem;
-    const ecosystems = fs.readdirSync(process.cwd()).filter(f =>
-      f.startsWith('ecosystem') && (f.endsWith('.js') || f.endsWith('.cjs') || f.endsWith('.mjs'))
-    );
-
-    if (!ecosystemFile) {
-      if (ecosystems.length === 0) {
-        console.log(chalk.red('❌ No se encontró ningún archivo ecosystem'));
-        return;
-      } else if (ecosystems.length === 1) {
-        ecosystemFile = ecosystems[0];
-      } else {
-        const answer = await inquirer.prompt([{
-          type: 'list',
-          name: 'ecosystem',
-          message: 'Selecciona el archivo ecosystem a usar:',
-          choices: ecosystems
-        }]);
-        ecosystemFile = answer.ecosystem;
-      }
-    }
-
-    // Leer credencial guardada
-    const serverAlias = flags.server || env; // puede mapearse al env o alias
-    const user = flags.user || 'root';
-    const password = await keytar.getPassword('koram', `${serverAlias}:${user}`);
-    if (!password) {
-      console.log(chalk.red(`❌ No se encontró credencial para ${user}@${serverAlias}`));
+    // Leer credenciales
+    const credFile = path.join(process.env.HOME, '.koram_credentials.json');
+    if (!fs.existsSync(credFile)) {
+      console.log(chalk.red('❌ No se encontraron credenciales guardadas'));
       return;
     }
+
+    const allCreds = JSON.parse(fs.readFileSync(credFile));
+    const keys = Object.keys(allCreds).filter(k => k.startsWith(alias + ':'));
+
+    if (keys.length === 0) {
+      console.log(chalk.red(`❌ No se encontró credencial para alias "${alias}"`));
+      return;
+    }
+
+    // Selección si hay varias credenciales
+    let keyToUse;
+    if (keys.length === 1) {
+      keyToUse = keys[0];
+    } else {
+      const choices = keys.map(k => {
+        const user = k.split(':')[1];
+        const host = allCreds[k].host || '-';
+        return { name: `${user}@${alias} | Host: ${host}`, value: k };
+      });
+      const answer = await inquirer.prompt([{
+        type: 'list',
+        name: 'selected',
+        message: `Se encontraron varias credenciales para alias "${alias}", selecciona cuál usar:`,
+        choices
+      }]);
+      keyToUse = answer.selected;
+    }
+
+    const [aliasName, user] = keyToUse.split(':');
+    const host = allCreds[keyToUse].host;
+    if (!host) {
+      console.log(chalk.red(`❌ No se encontró host definido para ${user}@${aliasName}`));
+      return;
+    }
+
+    const password = await keytar.getPassword('koram', keyToUse);
+    const useSSHKey = flags.sshKey || false;
+
+    console.log(chalk.green(`🚀 Preparando deploy para ${user}@${host} usando ${useSSHKey ? 'SSH key' : 'contraseña'}...`));
+
+    // Detectar archivos ecosystem (.js, .cjs, .ts)
+    const allowedExts = ['.js', '.cjs', '.ts'];
+    const ecosystems = fs.readdirSync(process.cwd())
+      .filter(f => f.startsWith('ecosystem') && allowedExts.includes(path.extname(f)));
+
+    if (ecosystems.length === 0) {
+      console.log(chalk.red('❌ No se encontró ningún archivo ecosystem válido'));
+      return;
+    }
+
+    let ecosystemFile = ecosystems[0];
+    if (ecosystems.length > 1) {
+      const answer = await inquirer.prompt([{
+        type: 'list',
+        name: 'selected',
+        message: 'Se encontraron varios archivos ecosystem, selecciona cuál usar:',
+        choices: ecosystems
+      }]);
+      ecosystemFile = answer.selected;
+    }
+
+    const env = flags.env || 'production';
+    const extraParams = flags.extra || '';
 
     // Construir comando PM2
-    let pm2Args = flags.pm2Args || '';
-    const deployCommand = `pm2 deploy ${ecosystemFile} ${env} ${pm2Args}`;
+    let pm2Command = `pm2 deploy ${ecosystemFile} ${env} ${extraParams}`.trim();
 
-    console.log(chalk.blue(`🚀 Ejecutando deploy en ${env} usando ${ecosystemFile}...`));
+    // Si se usa contraseña, prefijamos con sshpass
+    if (password && !useSSHKey) {
+      pm2Command = `sshpass -p '${password}' ${pm2Command}`;
+    }
 
-    // Ejecutar deploy con la credencial
-    const child = exec(deployCommand, {
-      env: { ...process.env, SSH_PASSWORD: password },
-      stdio: 'inherit'
-    });
+    console.log(chalk.blue(`🔹 Comando final: ${pm2Command}`));
 
-    child.stdout.on('data', data => console.log(data.toString()));
-    child.stderr.on('data', data => console.error(data.toString()));
-    child.on('close', async code => {
-      console.log(chalk.green(`✅ Deploy finalizado con código ${code}`));
-      if (flags.cmd) {
-        console.log(chalk.blue(`💡 Ejecutando comando post-deploy: ${flags.cmd}`));
-        const post = exec(flags.cmd, { env: process.env });
-        post.stdout.on('data', d => console.log(d.toString()));
-        post.stderr.on('data', e => console.error(e.toString()));
+    // Ejecutar PM2 deploy localmente
+    const deployProcess = spawn(pm2Command, { shell: true, stdio: 'inherit' });
+
+    deployProcess.on('exit', code => {
+      if (code === 0) {
+        console.log(chalk.green('✅ Deploy completado con éxito'));
+      } else {
+        console.log(chalk.red(`❌ Deploy finalizó con código ${code}`));
       }
     });
   }
 }
 
-DeployCommand.description = `Realiza un deploy automático usando PM2 con credenciales guardadas.
-`;
+DeployCommand.description = `Realiza un deploy automático usando alias de credenciales guardadas.
+Si se desea omitir la contraseña y usar la llave SSH cargada en el agente, usar --ssh-key o -k.
+Permite múltiples archivos ecosystem (.js, .cjs, .ts) y parámetros extra de PM2.`;
 
 DeployCommand.args = [
-  { name: 'environment', required: true, description: 'Nombre del entorno (staging, production, etc.)' }
+  { name: 'alias', required: true, description: 'Alias del servidor a desplegar' }
 ];
 
 DeployCommand.flags = {
-  ecosystem: flags.string({ char: 'e', description: 'Archivo ecosystem.config.js a usar' }),
-  pm2Args: flags.string({ char: 'a', description: 'Argumentos extra para PM2' }),
-  cmd: flags.string({ char: 'c', description: 'Comando post-deploy a ejecutar en el servidor' }),
-  server: flags.string({ char: 's', description: 'Alias o host del servidor (para credencial)' }),
-  user: flags.string({ char: 'u', description: 'Usuario SSH para el deploy' })
+  env: flags.string({ char: 'e', description: 'Environment a usar', default: 'production' }),
+  extra: flags.string({ char: 'x', description: 'Parámetros extra para pm2' }),
+  sshKey: flags.boolean({ char: 'k', description: 'Omitir contraseña y usar SSH key cargada en el agente' }),
 };
 
 module.exports = DeployCommand;
