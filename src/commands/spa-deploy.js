@@ -15,7 +15,7 @@ class DeploySPACommand extends Command {
     }
 
     // Ruta de tu nuevo script SPA
-    const deployerPath = path.join(cliRootPath, 'spa-deployer.py');
+    const deployerPath = path.join(cliRootPath, 'src/python-deployer/spa-deployer.py');
 
     // Leer configuración del proyecto
     const projectRoot = process.cwd();

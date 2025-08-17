@@ -3,7 +3,7 @@ import paramiko
 from scp import SCPClient
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTextEdit, QComboBox, QTableWidget, QTableWidgetItem
+    QPushButton, QTextEdit, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt5.QtCore import QThread, pyqtSignal
 
@@ -135,7 +135,12 @@ class SPADeployerApp(QWidget):
         self.env_table = QTableWidget(); self.env_table.setColumnCount(2)
         self.env_table.setHorizontalHeaderLabels(["KEY", "VALUE"])
         self.env_table.setMinimumHeight(200)
-        main_layout.addWidget(QLabel("Variables de entorno (opcional):"))
+        header = self.env_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setStretchLastSection(False)
+
+        main_layout.addWidget(QLabel("Variables de entorno para build local (opcional):"))
         main_layout.addWidget(self.env_table)
 
         # Botones agregar/eliminar
@@ -167,6 +172,12 @@ class SPADeployerApp(QWidget):
     def log(self, msg):
         self.log_output.append(msg)
         QApplication.processEvents()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        total_width = self.env_table.viewport().width()
+        self.env_table.setColumnWidth(0, int(total_width * 0.4))
+        self.env_table.setColumnWidth(1, int(total_width * 0.6))
 
     def deploy(self):
         host = self.host_input.text()
