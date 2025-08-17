@@ -1,102 +1,59 @@
-Koram
-=====
+# Koram
+## *El Toolkit Komarquino*
+*"La herramienta sagrada del buen desarrollador"*
 
-El Libro Sakrado del Wen Komarquino
-[![Version](https://img.shields.io/npm/v/koram.svg)](https://npmjs.org/package/koram)
-[![Downloads/week](https://img.shields.io/npm/dw/koram.svg)](https://npmjs.org/package/koram)
-[![License](https://img.shields.io/npm/l/koram.svg)](https://github.com/OTROS/koram/blob/master/package.json)
+---
 
-<!-- toc -->
-* [Usage](#usage)
-* [Commands](#commands)
-<!-- tocstop -->
-# Usage
-<!-- usage -->
-```sh-session
-$ npm install -g koram
-$ koram COMMAND
-running command...
-$ koram (-v|--version|version)
-koram/0.0.8 darwin-arm64 node-v20.7.0
-$ koram --help [COMMAND]
-USAGE
-  $ koram COMMAND
-...
+## Presentación de Komarca Labs
+En los albores del código, los desarrolladores buscaban un artefacto que guiara sus proyectos, que iluminara el camino entre la complejidad y la creatividad.  
+**Komarca Labs** lo ha forjado:  
+**Koram**, la herramienta sagrada del buen Komarquino.  
+
+---
+
+## Versión Sagrada
 ```
-<!-- usagestop -->
-# Commands
-<!-- commands -->
-* [`koram help [COMMAND]`](#koram-help-command)
-* [`koram login`](#koram-login)
-* [`koram nuxt-deploy`](#koram-nuxt-deploy)
-* [`koram ui`](#koram-ui)
-
-## `koram help [COMMAND]`
-
-display help for koram
-
-```
-USAGE
-  $ koram help [COMMAND]
-
-ARGUMENTS
-  COMMAND  command to show help for
-
-OPTIONS
-  --all  see all commands in CLI
+koram/0.0.9 darwin-arm64 node-v22.9.0
 ```
 
-_See code: [@oclif/plugin-help](https://github.com/oclif/plugin-help/blob/v3.2.0/src/commands/help.ts)_
+---
 
-## `koram login`
+## El Camino del Wen Komarquino
+Koram no es solo una herramienta; es un ritual, un compendio de poderes ancestrales para los que buscan la perfección en el desarrollo.  
 
-Logueate como wen komarquino
-
+**Uso**:  
 ```
-USAGE
-  $ koram login
-
-OPTIONS
-  -u, --user=user  nickname komarquino
-
-DESCRIPTION
-  ...
-  Comando de login en la plataforma koram
+$ koram [COMMAND]
 ```
 
-_See code: [src/commands/login.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.8/src/commands/login.js)_
+---
 
-## `koram nuxt-deploy`
+## Temas del Saber Komarquino
 
-Lanza el deployer Python para Nuxt
+| Tema      | Descripción |
+|----------|-------------|
+| **deploy**   | Inicializa un archivo `.koram-rc` en tu proyecto, marcando el inicio de la creación. |
+| **projects** | Lista todos los proyectos Koram en un directorio, revelando tu legado de desarrollador. |
 
-```
-USAGE
-  $ koram nuxt-deploy
+---
 
-OPTIONS
-  -h, --host=host  Host del servidor
-  -p, --path=path  Ruta remota de la app
-  -u, --user=user  Usuario SSH
+## Comandos Místicos
 
-DESCRIPTION
-  Este comando ejecuta el flujo de construcción, empaquetado, subida y reinicio de la app en el servidor.
-```
+| Comando       | Descripción |
+|---------------|-------------|
+| **help**      | Muestra la guía de sabiduría de Koram. |
+| **login**     | Loguéate como un verdadero Wen Komarquino. |
+| **nuxt-deploy** | Invoca el deployer Python para proyectos Nuxt. |
+| **spa-deploy**  | Invoca el deployer Python para SPA. |
+| **ui**        | Abre nuestro Libro Sagrado en tu navegador y contempla el poder del toolkit. |
 
-_See code: [src/commands/nuxt-deploy.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.8/src/commands/nuxt-deploy.js)_
+---
 
-## `koram ui`
+## El Legado Komarquino
+Koram es la llave que conecta el conocimiento de los antiguos con la tecnología moderna.  
+Solo los Komarquinos que lo dominen pueden desplegar proyectos con la precisión de un ritual ancestral.  
 
-Abre nuestro libro sakrado en tu navegador
+---
 
-```
-USAGE
-  $ koram ui
-
-DESCRIPTION
-  ...
-  Comando para abrir el koram
-```
-
-_See code: [src/commands/ui.js](https://gitlab.com/komarca-kodebase/koram-cli/blob/v0.0.8/src/commands/ui.js)_
-<!-- commandsstop -->
+## Komarca Labs
+*"Forjando herramientas sagradas para desarrolladores legendarios"*
