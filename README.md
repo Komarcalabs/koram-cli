@@ -79,4 +79,3 @@ Solo los Komarquinos que lo dominen pueden desplegar proyectos con la precisión
 ## Komarca Labs
 
 *"Forjando herramientas sagradas para desarrolladores legendarios"*
-
