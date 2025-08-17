@@ -1,12 +1,12 @@
 {
   "name": "koram",
-  "description": "El Libro Sakrado del Wen Komarquino",
+  "description": "El Toolkit sagrado del buen Komarquino",
   "version": "0.1.0",
-  "author": "Lord Dicus",
+  "author": "Dick Van Ocampo",
   "bin": {
     "koram": "./bin/run"
   },
-  "bugs": "https://github.com/OTROS/koram/issues",
+  "bugs": "https://github.com/Komarcalabs/koram-cli/issues",
   "dependencies": {
     "@oclif/command": "^1.8.0",
     "@oclif/config": "^1.17.0",
@@ -47,7 +47,7 @@
       "@oclif/plugin-help"
     ]
   },
-  "repository": "https://gitlab.com/komarca-kodebase/koram-cli",
+  "repository": "https://github.com/Komarcalabs/koram-cli",
   "scripts": {
     "postpack": "rm -f oclif.manifest.json",
     "posttest": "eslint .",
