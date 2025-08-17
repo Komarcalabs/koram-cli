@@ -7,45 +7,41 @@ const fs = require('fs');
 const http = require('http');
 const WebSocket = require('ws');
 const chokidar = require('chokidar');
+const open = require('open');
+const detectPort = require('detect-port').default;
 
 class ServeCommand extends Command {
   async run() {
-    const { flags } = this.parse(ServeCommand);
+    const { args, flags } = this.parse(ServeCommand);
     const auto = flags.yes || false;
-    const port = flags.port || 3777;
+    let port = flags.port || 3777;
 
-    // Carpeta por defecto: dist o public
-    let folder = 'dist';
-    if (!fs.existsSync(path.join(process.cwd(), folder))) {
-      folder = fs.existsSync(path.join(process.cwd(), 'public')) ? 'public' : null;
-    }
+    // Determinar carpeta a servir
+    let folder = args.folder;
+    const dirs = fs.readdirSync(process.cwd()).filter(f => fs.statSync(f).isDirectory());
 
     if (!folder) {
-      console.log(chalk.red('💥 No se encontró la carpeta dist ni public para servir.'));
-      return;
-    }
-
-    const serveMessage = `Deseas servir la carpeta sagrada "${folder}" en el puerto ${port}?`;
-
-    let proceed = auto;
-    if (!auto) {
+      if (dirs.length === 0) {
+        console.log(chalk.red('💥 No se encontraron carpetas en el directorio actual.'));
+        return;
+      }
       const answer = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'proceed',
-        message: serveMessage,
-        default: true
+        type: 'list',
+        name: 'folder',
+        message: 'Elige la carpeta que deseas servir:',
+        choices: dirs
       }]);
-      proceed = answer.proceed;
-    }
-
-    if (!proceed) {
-      console.log(chalk.blue('⏩ Ritual de servir cancelado.'));
+      folder = answer.folder;
+    } else if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) {
+      console.log(chalk.red(`💥 La carpeta "${folder}" no existe.`));
       return;
     }
 
-    // Configurar servidor
-    const app = express();
+    // Verificar si el puerto está ocupado
+    port = await detectPort(port);
+
     const servePath = path.join(process.cwd(), folder);
+    const app = express();
 
     // Middleware para inyectar live reload
     app.use((req, res, next) => {
@@ -70,7 +66,6 @@ class ServeCommand extends Command {
     const server = http.createServer(app);
     const wss = new WebSocket.Server({ server });
 
-    // Función de ritual animado
     function ritualProteccion() {
       const frames = [
         chalk.blue('🔮 ✨ ✨ ✨ ✨ ✨ ✨ ✨ ✨'),
@@ -88,7 +83,6 @@ class ServeCommand extends Command {
       }, 2000);
     }
 
-    // Observar cambios y disparar ritual
     const watcher = chokidar.watch(servePath, { ignoreInitial: true });
     watcher.on('all', (event, file) => {
       console.log(chalk.yellow(`\n⚡ Cambio detectado: ${file}`));
@@ -99,18 +93,31 @@ class ServeCommand extends Command {
     });
 
     server.listen(port, () => {
+      const url = `http://localhost:${port}`;
       console.log(chalk.green(`🟢 La carpeta "${folder}" está siendo servida por el Koram`));
-      console.log(chalk.cyan(`📜 Puedes acceder a ella en: http://localhost:${port}`));
+      console.log(chalk.cyan(`📜 Puedes acceder a ella en: ${chalk.underline.blue(url)}`));
       console.log(chalk.magenta('✨ Live reload activado: cambios se reflejarán automáticamente.'));
       console.log(chalk.magenta('🛡 Cada cambio será bendecido con un ritual de protección.'));
+
+      // Abrir navegador automáticamente
+      open(url);
     });
   }
 }
 
-ServeCommand.description = `Sirve tu proyecto Node.js o carpeta estática con live reload y ritual de protección
-Por defecto servirá "dist" o "public".
-Usa -p o --port para definir el puerto y -y para no preguntar.
+ServeCommand.description = `Sirve tu proyecto Node.js o cualquier carpeta estática con live reload y ritual de protección
+Puedes pasar la carpeta como argumento: koram serve nombre_carpeta
+Si no se pasa, se pedirá seleccionar entre las carpetas disponibles.
+El puerto se toma del flag -p o por defecto, si está ocupado se buscará automáticamente uno disponible.
 `;
+
+ServeCommand.args = [
+  {
+    name: 'folder',        // nombre del argumento posicional
+    required: false,
+    description: 'Nombre de la carpeta a servir'
+  }
+];
 
 ServeCommand.flags = {
   port: flags.integer({ char: 'p', description: 'Puerto donde se servirá el proyecto' }),
