@@ -1,7 +1,7 @@
 {
   "name": "koram",
   "description": "El Libro Sakrado del Wen Komarquino",
-  "version": "0.0.9",
+  "version": "0.1.0",
   "author": "Lord Dicus",
   "bin": {
     "koram": "./bin/run"
