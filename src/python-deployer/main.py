@@ -139,9 +139,9 @@ class DeployWorker(QThread):
             if self.pre_command:
                 remote_cmds += f"{self.pre_command} && "
 
-            # 🔹 Limpia solo lo que viene en el build y sobreescribe lo demás
+            # 🔹 Limpieza más agresiva para evitar builds antiguos
             remote_cmds += (
-                "rm -rf .output public && "
+                "rm -rf .output public .nuxt nuxt-output.tar.gz && "
                 "tar --overwrite -xzf nuxt-output.tar.gz && "
                 "npm ci --omit=dev && "
                 "npm rebuild --update-binary && "
