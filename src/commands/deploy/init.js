@@ -1,3 +1,4 @@
+// src/commands/deploy-init.js
 const { Command, flags } = require('@oclif/command');
 const fs = require('fs');
 const path = require('path');
@@ -7,42 +8,64 @@ class DeployInitCommand extends Command {
     const { flags } = this.parse(DeployInitCommand);
 
     const projectRoot = process.cwd();
-    const rcPath = path.join(projectRoot, '.koram-rc');
+    const env = flags.env || 'production';
+    const rcFileName = `.koram-rc.${env}.json`;
+    const rcPath = path.join(projectRoot, rcFileName);
 
     if (fs.existsSync(rcPath) && !flags.force) {
-      this.error('.koram-rc ya existe en este proyecto. Usa --force para sobrescribir.');
+      this.error(`${rcFileName} ya existe en este proyecto. Usa --force para sobrescribir.`);
       return;
     }
 
-    // Configuración inicial por defecto
+    // Configuración inicial mínima pero escalable
     const defaultConfig = {
-      app_name: flags.appName || 'mi-spa',
-      host: flags.host || '',
-      user: flags.user || '',
-      remote_path: flags.path || '/var/www/mi-spa',
-      build_env: flags.buildEnv || 'production'
+      environment: env,
+      server: {
+        host: flags.host || '',
+        user: flags.user || '',
+        port: 22,
+        sshKey: flags.sshKey || '~/.ssh/id_rsa'
+      },
+      deploy: {
+        repository: flags.repository || '',
+        branch: flags.branch || 'main',
+        targetPath: flags.path || `/var/www/${flags.appName || 'mi-app'}`,
+        preDeploy: [],
+        postDeploy: []
+      },
+      processes: {
+        [flags.appName || 'mi-app']: {
+          command: `pm2 start dist/index.js --name ${flags.appName || 'mi-app'}`,
+          logsPath: `/var/log/${flags.appName || 'mi-app'}.log`
+        }
+      },
+      env: {
+        NODE_ENV: env
+      }
     };
 
     try {
       fs.writeFileSync(rcPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
-      this.log(`✅ Archivo .koram-rc creado correctamente en ${rcPath}`);
+      this.log(`✅ Archivo ${rcFileName} creado correctamente en ${rcPath}`);
     } catch (err) {
-      this.error(`❌ No se pudo crear .koram-rc: ${err.message}`);
+      this.error(`❌ No se pudo crear ${rcFileName}: ${err.message}`);
     }
   }
 }
 
-DeployInitCommand.description = `Inicializa un archivo .koram-rc en tu proyecto.
-Este comando crea la configuración básica para que koram spa-deploy funcione.
-`;
+DeployInitCommand.description = `Inicializa un archivo de configuración .koram-rc.<entorno>.json en tu proyecto.
+Este archivo contiene la configuración mínima para soportar despliegues, logs y procesos, escalable para futuras funcionalidades.`;
 
 DeployInitCommand.flags = {
+  env: flags.string({ char: 'e', description: 'Entorno a inicializar (production, staging, development)', default: 'production' }),
   host: flags.string({ char: 'h', description: 'Host del servidor' }),
   user: flags.string({ char: 'u', description: 'Usuario SSH' }),
-  path: flags.string({ char: 'p', description: 'Ruta remota de la SPA' }),
-  buildEnv: flags.string({ char: 'e', description: 'Entorno de build (production, staging, etc.)' }),
+  path: flags.string({ char: 'p', description: 'Ruta remota donde se desplegará la app' }),
+  sshKey: flags.string({ char: 'k', description: 'Ruta a la SSH key' }),
+  repository: flags.string({ char: 'r', description: 'Repositorio Git para despliegue' }),
+  branch: flags.string({ char: 'b', description: 'Rama a desplegar' }),
   appName: flags.string({ char: 'a', description: 'Nombre de la aplicación' }),
-  force: flags.boolean({ char: 'f', description: 'Sobrescribir .koram-rc si ya existe' }),
+  force: flags.boolean({ char: 'f', description: 'Sobrescribir configuración existente' }),
 };
 
 module.exports = DeployInitCommand;
