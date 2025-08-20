@@ -1,6 +1,17 @@
-export async function selectKoramConfig(projectRoot, envFlag) {
-    let configPath;
+// src/commands/deploy-logs.js
+const glob = require('glob');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const chalk = require('chalk');
+const inquirer = require('inquirer');
+const keytar = require('keytar');
+const { NodeSSH } = require('node-ssh');
 
+
+module.exports.selectKoramConfig = async function (projectRoot, envFlag) {
+
+    let configPath;
     if (envFlag) {
         // Si el usuario pasó -e
         configPath = path.join(projectRoot, `.koram-rc.${envFlag}.json`);
@@ -37,7 +48,8 @@ export async function selectKoramConfig(projectRoot, envFlag) {
     return configPath;
 }
 
-export const getCredentialByKey = function (alias, user, host) {
+
+module.exports.getCredentialByKey = async function (alias, username, hostname) {
 
     // Leer credenciales
     const credFile = path.join(os.homedir(), '.koram_credentials.json');
@@ -46,11 +58,40 @@ export const getCredentialByKey = function (alias, user, host) {
         return;
     }
     const allCreds = JSON.parse(fs.readFileSync(credFile));
+    var keys;
     if (alias) {
-        const keys = Object.keys(allCreds).filter(k => k.startsWith(alias + ':'));
+        keys = Object.keys(allCreds).filter(k => k.startsWith(alias + ':'));
     } else {
-        const keys = Object.keys(allCreds).filter(k => k.endsWith(':' + user) && allCreds[k].host == host);
+        keys = Object.keys(allCreds).filter(k => k.endsWith(':' + username) && allCreds[k].host == hostname);
     }
 
-    return keys;
+    console.log(keys, "llaves", alias, username, hostname,allCreds)
+
+    let keyToUse = keys[0] || '';
+    if (keys.length > 1) {
+        const choices = keys.map(k => {
+            let user = k.split(':')[1];
+            let host = allCreds[k].host || '-';
+            return { name: `${user}@${alias} | Host: ${host}`, value: k };
+        });
+        const answer = await inquirer.prompt([{
+            type: 'list',
+            name: 'selected',
+            message: `Se encontraron varias credenciales para alias "${alias}", selecciona cuál usar:`,
+            choices
+        }]);
+        keyToUse = answer.selected;
+    }
+
+    const [aliasName, user] = keyToUse.split(':');
+    const host = allCreds[keyToUse].host;
+
+    if (!host) {
+        console.log(chalk.red(`❌ No se encontró host definido para ${user}@${aliasName}`));
+        return;
+    }
+
+    const password = await keytar.getPassword('koram', keyToUse);
+
+    return password;
 }

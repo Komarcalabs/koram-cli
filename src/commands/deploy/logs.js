@@ -1,5 +1,4 @@
 // src/commands/deploy-logs.js
-const glob = require('glob');
 const { Command, flags } = require('@oclif/command');
 const fs = require('fs');
 const path = require('path');
@@ -33,55 +32,16 @@ class DeployLogsCommand extends Command {
             return;
         }
 
-        var keys = getCredentialByKey(alias);
+        var password = await getCredentialByKey(alias);
 
         if (alias == '.') {// con . apuntamos al servidor actual
             let serverUser = configFile.server.user;
             let host = configFile.server.host;
-            var keys = getCredentialByKey(null, serverUser, host);
+            password = getCredentialByKey(null, serverUser, host);
         }
-
-        // Leer credenciales
-        // const credFile = path.join(os.homedir(), '.koram_credentials.json');
-        // if (!fs.existsSync(credFile)) {
-        //     console.log(chalk.red('❌ No se encontraron credenciales guardadas'));
-        //     return;
-        // }
-        // const allCreds = JSON.parse(fs.readFileSync(credFile));
-        // const keys = Object.keys(allCreds).filter(k => k.startsWith(alias + ':'));
-        // if (!keys.length) {
-        //     console.log(chalk.red(`❌ No se encontró credencial para alias "${alias}"`));
-        //     return;
-        // }
-
-        // Seleccionar credencial si hay varias
-        console.log(keys,)
-
-
-        let keyToUse = keys[0];
-        if (keys.length > 1) {
-            const choices = keys.map(k => {
-                const user = k.split(':')[1];
-                const host = allCreds[k].host || '-';
-                return { name: `${user}@${alias} | Host: ${host}`, value: k };
-            });
-            const answer = await inquirer.prompt([{
-                type: 'list',
-                name: 'selected',
-                message: `Se encontraron varias credenciales para alias "${alias}", selecciona cuál usar:`,
-                choices
-            }]);
-            keyToUse = answer.selected;
-        }
-
-        const [aliasName, user] = keyToUse.split(':');
-        const host = allCreds[keyToUse].host;
-        if (!host) {
-            console.log(chalk.red(`❌ No se encontró host definido para ${user}@${aliasName}`));
-            return;
-        }
-
-        const password = await keytar.getPassword('koram', keyToUse);
+        
+        console.log(password)
+        
         const useSSHKey = flags.sshKey || false;
 
         // Leer .koram-rc para obtener ruta SSH key
