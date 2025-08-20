@@ -1,4 +1,5 @@
 // src/commands/deploy-logs.js
+const glob = require('glob');
 const { Command, flags } = require('@oclif/command');
 const fs = require('fs');
 const path = require('path');
@@ -8,44 +9,8 @@ const inquirer = require('inquirer');
 const keytar = require('keytar');
 const { NodeSSH } = require('node-ssh');
 
-async function selectKoramConfig(projectRoot, envFlag) {
-    let configPath;
+const { selectKoramConfig, getCredentialByKey } = require('../../utils/index')
 
-    if (envFlag) {
-        // Si el usuario pasó -e
-        configPath = path.join(projectRoot, `.koram-rc.${envFlag}.json`);
-        if (!fs.existsSync(configPath)) {
-            throw new Error(`❌ No se encontró archivo ${configPath}`);
-        }
-    } else {
-        // Buscar todos los .koram-rc.*.json
-        const configs = glob.sync(path.join(projectRoot, `.koram-rc.*.json`));
-
-        if (configs.length === 0) {
-            throw new Error(`❌ No se encontró ningún archivo .koram-rc.*.json en ${projectRoot}`);
-        }
-
-        if (configs.length === 1) {
-            configPath = configs[0]; // Solo uno → usar ese directamente
-        } else {
-            // Preguntar al usuario
-            const { chosen } = await inquirer.prompt([
-                {
-                    type: 'list',
-                    name: 'chosen',
-                    message: 'Se encontraron múltiples entornos, selecciona uno:',
-                    choices: configs.map(c => ({
-                        name: path.basename(c).replace('.koram-rc.', '').replace('.json', ''),
-                        value: c,
-                    })),
-                },
-            ]);
-            configPath = chosen;
-        }
-    }
-
-    return configPath;
-}
 
 class DeployLogsCommand extends Command {
     async run() {
@@ -61,30 +26,38 @@ class DeployLogsCommand extends Command {
 
         const projectRoot = process.cwd();
 
-        let conf = await selectKoramConfig(projectRoot,flags.env)
-
-        console.log(conf,"configuracion")
-
+        let configFile = JSON.parse(fs.readFileSync(await selectKoramConfig(projectRoot, flags.env)))
         const alias = args.alias;
         if (!alias) {
             console.log(chalk.red('❌ Debes indicar un alias de servidor'));
             return;
         }
 
-        // Leer credenciales
-        const credFile = path.join(os.homedir(), '.koram_credentials.json');
-        if (!fs.existsSync(credFile)) {
-            console.log(chalk.red('❌ No se encontraron credenciales guardadas'));
-            return;
-        }
-        const allCreds = JSON.parse(fs.readFileSync(credFile));
-        const keys = Object.keys(allCreds).filter(k => k.startsWith(alias + ':'));
-        if (!keys.length) {
-            console.log(chalk.red(`❌ No se encontró credencial para alias "${alias}"`));
-            return;
+        var keys = getCredentialByKey(alias);
+
+        if (alias == '.') {// con . apuntamos al servidor actual
+            let serverUser = configFile.server.user;
+            let host = configFile.server.host;
+            var keys = getCredentialByKey(null, serverUser, host);
         }
 
+        // Leer credenciales
+        // const credFile = path.join(os.homedir(), '.koram_credentials.json');
+        // if (!fs.existsSync(credFile)) {
+        //     console.log(chalk.red('❌ No se encontraron credenciales guardadas'));
+        //     return;
+        // }
+        // const allCreds = JSON.parse(fs.readFileSync(credFile));
+        // const keys = Object.keys(allCreds).filter(k => k.startsWith(alias + ':'));
+        // if (!keys.length) {
+        //     console.log(chalk.red(`❌ No se encontró credencial para alias "${alias}"`));
+        //     return;
+        // }
+
         // Seleccionar credencial si hay varias
+        console.log(keys,)
+
+
         let keyToUse = keys[0];
         if (keys.length > 1) {
             const choices = keys.map(k => {
@@ -201,7 +174,7 @@ DeployLogsCommand.args = [
 ];
 
 DeployLogsCommand.flags = {
-    env: flags.string({ char: 'e', description: 'Entorno a usar', default: 'production' }),
+    env: flags.string({ char: 'e', description: 'Entorno a usar', default: '' }),
     sshKey: flags.boolean({ char: 'k', description: 'Usar SSH key en lugar de password' }),
     process: flags.string({ char: 'p', description: 'Nombre del proceso PM2 a mostrar' }),
     lines: flags.integer({ char: 'l', description: 'Número de líneas a mostrar', default: 50 }),
