@@ -88,9 +88,10 @@ class DeployWorker(QThread):
             subprocess.run(["npm", "ci", "--omit=dev", "--no-progress"], check=True, env=env)
             subprocess.run(["npm", "run", "build", "--", "--no-progress"], check=True, env=env)
 
-            output_dir = ".output"
+            # Detectar carpeta de salida (Nuxt3: .output, Nuxt2: .nuxt)
+            output_dir = ".output" if os.path.exists(".output") else ".nuxt"
             if not os.path.exists(output_dir):
-                self.log(f"❌ Directorio {output_dir} no encontrado.")
+                self.log(f"❌ Directorio de build no encontrado (.output o .nuxt).")
                 self.finished_signal.emit(False)
                 return
 
@@ -100,9 +101,10 @@ class DeployWorker(QThread):
                 subprocess.run(["rm", "-rf", server_node_modules], check=True)
 
             self.log("📦 Empaquetando archivos...")
+            files_to_pack = [output_dir, "package.json", "package-lock.json", "public"]
+            existing_files = [f for f in files_to_pack if os.path.exists(f)]
             subprocess.run([
-                "tar", "--no-xattrs", "--dereference", "-czf", "nuxt-output.tar.gz",
-                ".output", "package.json", "package-lock.json", "public"
+                "tar", "--no-xattrs", "--dereference", "-czf", "nuxt-output.tar.gz", *existing_files
             ], check=True)
 
             # --- SSH ---
@@ -139,10 +141,11 @@ class DeployWorker(QThread):
             if self.pre_command:
                 remote_cmds += f"{self.pre_command} && "
 
-            # 🔹 Limpieza más agresiva para evitar builds antiguos
+            # 🔹 Limpieza correcta (no borrar el tar antes de extraerlo)
             remote_cmds += (
-                "rm -rf .output public .nuxt nuxt-output.tar.gz && "
+                "rm -rf .output public .nuxt && "
                 "tar --overwrite -xzf nuxt-output.tar.gz && "
+                "rm nuxt-output.tar.gz && "
                 "npm ci --omit=dev && "
                 "npm rebuild --update-binary && "
                 "export $(cat .env | xargs) && "
@@ -150,7 +153,7 @@ class DeployWorker(QThread):
 
             if self.use_pm2:
                 remote_cmds += (
-                    f"pm2 restart {self.appname} --update-env || "
+                    f"pm2 restart {self.appname} --update-env -f || "
                     f"pm2 start .output/server/index.mjs --name {self.appname} --env production"
                 )
             else:
