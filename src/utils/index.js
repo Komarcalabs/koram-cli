@@ -92,6 +92,10 @@ module.exports.getCredentialByKey = async function (alias, username, hostname) {
     }
 
     const password = await keytar.getPassword('koram', keyToUse);
-
-    return password;
+    return {
+        alias,
+        user,
+        host,
+        password
+    };
 }

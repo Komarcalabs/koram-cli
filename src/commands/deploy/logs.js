@@ -7,117 +7,123 @@ const chalk = require('chalk');
 const inquirer = require('inquirer');
 const keytar = require('keytar');
 const { NodeSSH } = require('node-ssh');
-
 const { selectKoramConfig, getCredentialByKey } = require('../../utils/index')
-
 
 class DeployLogsCommand extends Command {
     async run() {
-        let { args, flags } = this.parse(DeployLogsCommand);
-
-        // Permitir forma corta: alias proceso lines
-        if (!flags.process && args.process) {
-            flags.process = args.process;
-        }
-        if (!flags.lines && args.lines) {
-            flags.lines = args.lines;
-        }
-
-        const projectRoot = process.cwd();
-
-        let configFile = JSON.parse(fs.readFileSync(await selectKoramConfig(projectRoot, flags.env)))
-        const alias = args.alias;
-        if (!alias) {
-            console.log(chalk.red('❌ Debes indicar un alias de servidor'));
-            return;
-        }
-
-        var password = await getCredentialByKey(alias);
-
-        if (alias == '.') {// con . apuntamos al servidor actual
-            let serverUser = configFile.server.user;
-            let host = configFile.server.host;
-            password = getCredentialByKey(null, serverUser, host);
-        }
-        
-        console.log(password)
-        
-        const useSSHKey = flags.sshKey || false;
-
-        // Leer .koram-rc para obtener ruta SSH key
-        const koramRCFile = path.join(process.cwd(), `.koram-rc.${flags.env || 'production'}`);
-        let sshKeyPath = null;
-        if (fs.existsSync(koramRCFile)) {
-            const rcConfig = JSON.parse(fs.readFileSync(koramRCFile, 'utf8'));
-            sshKeyPath = rcConfig[alias]?.sshKey || null;
-        }
-
-        if (useSSHKey && !sshKeyPath && !process.env.SSH_AUTH_SOCK) {
-            console.log(chalk.red(`❌ No se encontró la SSH key para alias "${alias}" en ${koramRCFile}`));
-            return;
-        }
-
-        console.log(chalk.green(`🚀 Conectando al servidor ${user}@${host} usando ${useSSHKey ? 'SSH key' : 'password'}...`));
-
-        const ssh = new NodeSSH();
         try {
-            const sshConfig = { host, username: user };
+            let { args, flags } = this.parse(DeployLogsCommand);
+            // Permitir forma corta: alias proceso lines
+            if (!flags.process && args.process) {
+                flags.process = args.process;
+            }
+            if (!flags.lines && args.lines) {
+                flags.lines = args.lines;
+            }
+            const projectRoot = process.cwd();
+            let configFile = JSON.parse(fs.readFileSync(await selectKoramConfig(projectRoot, flags.env)))
+            const alias = args.alias;
+            if (!alias) {
+                console.log(chalk.red('❌ Debes indicar un alias de servidor'));
+                return;
+            }
+            var credentials = {
+                user: configFile.server.user,
+                host: configFile.server.host
+            };
 
-            if (useSSHKey) {
-                if (sshKeyPath) {
-                    // Guardar temporalmente la key
-                    const tempKeyPath = path.join(os.tmpdir(), `koram_temp_key_${Date.now()}`);
-                    fs.writeFileSync(tempKeyPath, fs.readFileSync(sshKeyPath, 'utf8'), { mode: 0o600 });
-                    sshConfig.privateKey = tempKeyPath;
-                } else if (process.env.SSH_AUTH_SOCK) {
-                    sshConfig.agent = process.env.SSH_AUTH_SOCK;
-                }
-            } else if (password) {
-                sshConfig.password = password;
+            if (alias == '.') {// con . apuntamos al servidor actual
+                let serverUser = configFile.server.user;
+                let host = configFile.server.host;
+                credentials = await getCredentialByKey(null, serverUser, host);
             } else {
-                console.log(chalk.red('❌ No se proporcionó ni contraseña ni SSH key'));
+                credentials = await getCredentialByKey(alias);
+            }
+            var { password, user, host } = credentials;
+
+            const useSSHKey = flags.sshKey || false;
+            if (useSSHKey) {
+                // Usaremos el ssh key seteado en el bloque server 
+                sshKeyPath = configFile.server.sshKey || null;
+            }
+
+            // Leer .koram-rc para obtener ruta SSH key
+            const koramRCFile = path.join(process.cwd(), `.koram-rc.${flags.env || 'production'}`);
+            let sshKeyPath = null;
+            if (fs.existsSync(koramRCFile)) {
+                const rcConfig = JSON.parse(fs.readFileSync(koramRCFile, 'utf8'));
+                sshKeyPath = rcConfig[alias]?.sshKey || null;
+            }
+
+            if (useSSHKey && !sshKeyPath && !process.env.SSH_AUTH_SOCK) {
+                console.log(chalk.red(`❌ No se encontró la SSH key para alias "${alias}" en ${koramRCFile}`));
                 return;
             }
 
-            await ssh.connect(sshConfig);
+            console.log(chalk.green(`🚀 Conectando al servidor ${user}@${host} usando ${useSSHKey ? 'SSH key' : 'password'}...`));
 
-            console.log(chalk.blue(`🔹 Obteniendo lista de procesos PM2 en ${host}...`));
-            const lsResult = await ssh.execCommand('pm2 jlist');
-            if (!lsResult.stdout) {
-                console.log(chalk.red('❌ No se pudo obtener la lista de procesos PM2'));
-                return;
+            const ssh = new NodeSSH();
+            try {
+                const sshConfig = { host, username: user };
+
+                if (useSSHKey) {
+                    if (sshKeyPath) {
+                        // Guardar temporalmente la key
+                        const tempKeyPath = path.join(os.tmpdir(), `koram_temp_key_${Date.now()}`);
+                        fs.writeFileSync(tempKeyPath, fs.readFileSync(sshKeyPath, 'utf8'), { mode: 0o600 });
+                        sshConfig.privateKey = tempKeyPath;
+                    } else if (process.env.SSH_AUTH_SOCK) {
+                        sshConfig.agent = process.env.SSH_AUTH_SOCK;
+                    }
+                } else if (password) {
+                    sshConfig.password = password;
+                } else {
+                    console.log(chalk.red('❌ No se proporcionó ni contraseña ni SSH key'));
+                    return;
+                }
+
+                await ssh.connect(sshConfig);
+
+                console.log(chalk.blue(`🔹 Obteniendo lista de procesos PM2 en ${host}...`));
+                const lsResult = await ssh.execCommand('pm2 jlist');
+                if (!lsResult.stdout) {
+                    console.log(chalk.red('❌ No se pudo obtener la lista de procesos PM2'));
+                    return;
+                }
+
+                const processes = JSON.parse(lsResult.stdout);
+                let procName = flags.process;
+                if (!procName) {
+                    const choices = processes.map(p => ({
+                        name: `${p.name} (id: ${p.pm_id})`,
+                        value: p.name
+                    }));
+                    const answer = await inquirer.prompt([{
+                        type: 'list',
+                        name: 'selected',
+                        message: 'Selecciona el proceso para ver logs:',
+                        choices
+                    }]);
+                    procName = answer.selected;
+                }
+
+                const lines = flags.lines || 50;
+                const follow = flags.follow ? '--lines 0 --raw' : `--lines ${lines}`;
+                console.log(chalk.blue(`🔹 Obteniendo logs de "${procName}" en ${host}...`));
+
+                // Ejecutar pm2 logs en tiempo real
+                await ssh.exec(`pm2 logs ${procName} ${follow}`, [], {
+                    stream: 'stdout',
+                    onStdout(chunk) { process.stdout.write(chunk); },
+                    onStderr(chunk) { process.stderr.write(chunk); },
+                });
+
+                ssh.dispose();
+            } catch (err) {
+                console.log(chalk.red('❌ Error al obtener logs:'), err.message);
             }
-
-            const processes = JSON.parse(lsResult.stdout);
-            let procName = flags.process;
-            if (!procName) {
-                const choices = processes.map(p => ({
-                    name: `${p.name} (id: ${p.pm_id})`,
-                    value: p.name
-                }));
-                const answer = await inquirer.prompt([{
-                    type: 'list',
-                    name: 'selected',
-                    message: 'Selecciona el proceso para ver logs:',
-                    choices
-                }]);
-                procName = answer.selected;
-            }
-
-            const lines = flags.lines || 50;
-            const follow = flags.follow ? '--lines 0 --raw' : `--lines ${lines}`;
-            console.log(chalk.blue(`🔹 Obteniendo logs de "${procName}" en ${host}...`));
-
-            // Ejecutar pm2 logs en tiempo real
-            await ssh.exec(`pm2 logs ${procName} ${follow}`, [], {
-                stream: 'stdout',
-                onStdout(chunk) { process.stdout.write(chunk); },
-                onStderr(chunk) { process.stderr.write(chunk); },
-            });
-
-            ssh.dispose();
-        } catch (err) {
-            console.log(chalk.red('❌ Error al obtener logs:'), err.message);
+        } catch (error) {
+            console.log(error, "error")
         }
     }
 }
