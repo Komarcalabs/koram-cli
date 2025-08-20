@@ -143,7 +143,7 @@ class DeployWorker(QThread):
 
             # 🔹 Limpieza correcta (no borrar el tar antes de extraerlo)
             remote_cmds += (
-                "rm -rf .output public .nuxt && "
+                "rm -rf .output public .nuxt .cache && "
                 "tar --overwrite -xzf nuxt-output.tar.gz && "
                 "rm nuxt-output.tar.gz && "
                 "npm ci --omit=dev && "
