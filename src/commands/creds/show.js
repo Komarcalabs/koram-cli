@@ -1,9 +1,16 @@
 // src/commands/creds/show.js
 const { Command } = require('@oclif/command');
-const keytar = require('keytar');
 const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
+const Table = require('cli-table3');
+
+let keytar;
+try {
+  keytar = require('keytar');
+} catch (err) {
+  keytar = null; // Si keytar no está disponible (ej. en WSL)
+}
 
 class CredsShowCommand extends Command {
   async run() {
@@ -11,13 +18,13 @@ class CredsShowCommand extends Command {
     const alias = args.alias;
 
     if (!alias) {
-      console.log(chalk.red('❌ Debes indicar un alias'));
+      this.log(chalk.red('❌ Debes indicar un alias'));
       return;
     }
 
     const credFile = path.join(process.env.HOME, '.koram_credentials.json');
     if (!fs.existsSync(credFile)) {
-      console.log(chalk.red('❌ No se encontraron credenciales guardadas'));
+      this.log(chalk.red('❌ No se encontraron credenciales guardadas'));
       return;
     }
 
@@ -25,7 +32,7 @@ class CredsShowCommand extends Command {
     const keys = Object.keys(allCreds).filter(k => k.startsWith(alias + ':'));
 
     if (keys.length === 0) {
-      console.log(chalk.red(`❌ No se encontró credencial para alias "${alias}"`));
+      this.log(chalk.red(`❌ No se encontró credencial para alias "${alias}"`));
       return;
     }
 
@@ -34,25 +41,50 @@ class CredsShowCommand extends Command {
     if (keys.length === 1) {
       keyToUse = keys[0];
     } else {
-      console.log(chalk.yellow(`Se encontraron varias credenciales para alias "${alias}":`));
+      this.log(chalk.yellow(`⚠ Se encontraron varias credenciales para alias "${alias}":`));
       keys.forEach(k => {
         const user = k.split(':')[1];
-        console.log(`- ${user}`);
+        this.log(`- ${user}`);
       });
-      console.log(chalk.yellow('Usa el nombre completo alias:usuario para ver la contraseña'));
+      this.log(chalk.yellow('👉 Usa el nombre completo alias:usuario para ver la contraseña'));
       return;
     }
 
     const [aliasName, user] = keyToUse.split(':');
     const host = allCreds[keyToUse].host || '-';
 
-    // Obtener contraseña desde Keytar
-    const password = await keytar.getPassword('koram', keyToUse);
+    let password = null;
+    let origen = chalk.green('keytar');
 
-    console.log(chalk.green(`Alias: ${aliasName}`));
-    console.log(chalk.green(`Usuario: ${user}`));
-    console.log(chalk.green(`Host: ${host}`));
-    console.log(chalk.green(`Contraseña: ${password || '(No guardada)'}`));
+    // Buscar primero en keytar (si está disponible)
+    if (keytar) {
+      password = await keytar.getPassword('koram', keyToUse);
+    }
+
+    // Si no se encontró en keytar, buscar en fallback JSON
+    if (!password && allCreds[keyToUse].password) {
+      password = allCreds[keyToUse].password;
+      origen = chalk.yellow('fallback ⚠️');
+    }
+
+    // Construir tabla
+    const table = new Table({
+      head: [chalk.cyan('Campo'), chalk.cyan('Valor')],
+      style: { head: [], border: [] },
+      colWidths: [15, 60],
+      wordWrap: true,
+    });
+
+    table.push(
+      [chalk.blue('Alias'), aliasName],
+      [chalk.blue('Usuario'), user],
+      [chalk.blue('Host'), host],
+      [chalk.blue('Contraseña'), password || chalk.red('(No guardada)')],
+      [chalk.blue('Origen'), origen],
+    );
+
+    this.log(chalk.blue('🔎 Detalle de la credencial:\n'));
+    this.log(table.toString());
   }
 }
 
