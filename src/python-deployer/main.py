@@ -20,10 +20,9 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 # ========= CIFRADO / DESCIFRADO =========
 def generate_key():
-    """Genera clave única basada en usuario y nombre del host."""
     user = getpass.getuser()
     hostname = platform.node()
-    salt = b"koram_static_salt"  # Mantener fija para consistencia
+    salt = b"koram_static_salt"
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
@@ -33,21 +32,19 @@ def generate_key():
     return base64.urlsafe_b64encode(kdf.derive(f"{user}@{hostname}".encode()))
 
 def encrypt_password(password: str) -> str:
-    """Cifra la contraseña."""
     if not password:
         return ""
     f = Fernet(generate_key())
     return f.encrypt(password.encode()).decode()
 
 def decrypt_password(encrypted_password: str) -> str:
-    """Descifra la contraseña."""
     if not encrypted_password:
         return ""
     try:
         f = Fernet(generate_key())
         return f.decrypt(encrypted_password.encode()).decode()
     except Exception:
-        return ""  # Si falla (otro usuario/pc), devolver vacío
+        return ""
 
 # ========= LIMPIEZA ANSI =========
 def clean_ansi(text):
@@ -59,7 +56,7 @@ class DeployWorker(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool)
 
-    def __init__(self, host, user, password, remote_path, appname, app_port, rc_path, build_env, env_vars, use_pm2, pre_command):
+    def __init__(self, host, user, password, remote_path, appname, app_port, rc_path, build_env, env_vars, use_pm2, pre_command, optimize_npm):
         super().__init__()
         self.host = host
         self.user = user
@@ -72,6 +69,7 @@ class DeployWorker(QThread):
         self.env_vars = env_vars
         self.use_pm2 = use_pm2
         self.pre_command = pre_command
+        self.optimize_npm = optimize_npm
 
     def run(self):
         try:
@@ -139,19 +137,30 @@ class DeployWorker(QThread):
             if self.pre_command:
                 remote_cmds += f"{self.pre_command} && "
 
-            # 🔹 Limpieza más agresiva para evitar builds antiguos
+            # 🔹 Limpieza + instalación dependencias
+            if self.optimize_npm:
+                npm_cmds = (
+                    "npm ci --omit=dev --prefer-offline --no-audit || npm ci --omit=dev && "
+                    "npm rebuild --update-binary --build-from-source && "
+                )
+            else:
+                npm_cmds = (
+                    "npm ci --omit=dev && "
+                    "npm rebuild --update-binary && "
+                )
+
             remote_cmds += (
                 "rm -rf .output public .nuxt nuxt-output.tar.gz && "
-                "tar --overwrite -xzf nuxt-output.tar.gz && "
-                "npm ci --omit=dev && "
-                "npm rebuild --update-binary && "
+                "tar --overwrite -xzf nuxt-output.tar.gz && " +
+                npm_cmds +
                 "export $(cat .env | xargs) && "
             )
 
             if self.use_pm2:
                 remote_cmds += (
-                    f"pm2 restart {self.appname} --update-env || "
-                    f"pm2 start .output/server/index.mjs --name {self.appname} --env production"
+                    f"if pm2 describe {self.appname} > /dev/null; then "
+                    f"pm2 reload {self.appname} --update-env; "
+                    f"else pm2 start .output/server/index.mjs --name {self.appname} --env production; fi"
                 )
             else:
                 remote_cmds += "node .output/server/index.mjs"
@@ -260,6 +269,12 @@ class DeployerApp(QWidget):
         main_layout.addWidget(QLabel("Usar PM2?"))
         main_layout.addWidget(self.use_pm2_selector)
 
+        # --- Optimización npm ci ---
+        self.optimize_npm_selector = QComboBox()
+        self.optimize_npm_selector.addItems(["Sí", "No"])
+        main_layout.addWidget(QLabel("Optimizar npm ci? (offline + no-audit)"))
+        main_layout.addWidget(self.optimize_npm_selector)
+
         self.log_output = QTextEdit(); self.log_output.setReadOnly(True)
         deploy_btn = QPushButton("Deploy")
         deploy_btn.clicked.connect(self.deploy)
@@ -331,6 +346,7 @@ class DeployerApp(QWidget):
         build_env_name = build_env_file.split('.')[-1] if build_env_file else "production"
         use_pm2 = self.use_pm2_selector.currentText() == "Sí"
         pre_command = self.pre_cmd_input.text().strip()
+        optimize_npm = self.optimize_npm_selector.currentText() == "Sí"
 
         env_vars = {}
         for row in range(self.env_table.rowCount()):
@@ -346,7 +362,7 @@ class DeployerApp(QWidget):
             "host": host,
             "port_build": app_port,
             "user": user,
-            "password": encrypt_password(password),  # Cifrado aquí
+            "password": encrypt_password(password),
             "remote_path": remote_path,
             "app_name": appname,
             "environment": env_vars,
@@ -357,7 +373,7 @@ class DeployerApp(QWidget):
         self.log(f"💾 Configuración guardada en {self.rc_path}")
 
         self.worker = DeployWorker(host, user, password, remote_path, appname, app_port, self.rc_path,
-                                   build_env_name, env_vars, use_pm2, pre_command)
+                                   build_env_name, env_vars, use_pm2, pre_command, optimize_npm)
         self.worker.log_signal.connect(self.log)
         self.worker.finished_signal.connect(lambda success: self.log("✅ Deploy terminado." if success else "❌ Deploy fallido."))
         self.worker.start()
