@@ -1,7 +1,7 @@
 {
   "name": "koram",
   "description": "El Toolkit sagrado del buen Komarquino",
-  "version": "0.1.8",
+  "version": "1.0.0",
   "author": "Dick Van Ocampo",
   "bin": {
     "koram": "./bin/run"
@@ -16,11 +16,7 @@
     "cli-table3": "^0.6.5",
     "detect-port": "^2.1.0",
     "express": "^4.17.1",
-<<<<<<< HEAD
-    "inquirer": "^12.9.3",
-=======
     "inquirer": "^8.2.7",
->>>>>>> development
     "keytar": "^7.9.0",
     "marked": "^16.1.2",
     "node-ssh": "^13.2.1",
