@@ -5,9 +5,13 @@ const path = require('path');
 const os = require('os');
 const chalk = require('chalk');
 const inquirer = require('inquirer');
-const keytar = require('keytar');
 const { NodeSSH } = require('node-ssh');
-
+let keytar;
+try {
+  keytar = require('keytar');
+} catch (err) {
+  keytar = null;
+}
 
 module.exports.selectKoramConfig = async function (projectRoot, envFlag) {
 
@@ -49,8 +53,7 @@ module.exports.selectKoramConfig = async function (projectRoot, envFlag) {
 }
 
 
-module.exports.getCredentialByKey = async function (alias, username, hostname) {
-
+module.exports.getCredentialByKey = async function(alias, username, hostname) {
     // Leer credenciales
     const credFile = path.join(os.homedir(), '.koram_credentials.json');
     if (!fs.existsSync(credFile)) {
@@ -58,26 +61,33 @@ module.exports.getCredentialByKey = async function (alias, username, hostname) {
         return;
     }
     const allCreds = JSON.parse(fs.readFileSync(credFile));
-    var keys;
+
+    let keys;
     if (alias) {
         keys = Object.keys(allCreds).filter(k => k.startsWith(alias + ':'));
+    } else if (username && hostname) {
+        keys = Object.keys(allCreds).filter(k => k.endsWith(':' + username) && allCreds[k].host === hostname);
     } else {
-        keys = Object.keys(allCreds).filter(k => k.endsWith(':' + username) && allCreds[k].host == hostname);
+        keys = Object.keys(allCreds);
     }
 
-    console.log(keys, "llaves", alias, username, hostname,allCreds)
+    if (keys.length === 0) {
+        console.log(chalk.red('❌ No se encontraron credenciales que coincidan'));
+        return;
+    }
 
-    let keyToUse = keys[0] || '';
+    // Elegir cuál usar si hay varias
+    let keyToUse = keys[0];
     if (keys.length > 1) {
         const choices = keys.map(k => {
             let user = k.split(':')[1];
             let host = allCreds[k].host || '-';
-            return { name: `${user}@${alias} | Host: ${host}`, value: k };
+            return { name: `${user}@${k.split(':')[0]} | Host: ${host}`, value: k };
         });
         const answer = await inquirer.prompt([{
             type: 'list',
             name: 'selected',
-            message: `Se encontraron varias credenciales para alias "${alias}", selecciona cuál usar:`,
+            message: `Se encontraron varias credenciales, selecciona cuál usar:`,
             choices
         }]);
         keyToUse = answer.selected;
@@ -86,16 +96,24 @@ module.exports.getCredentialByKey = async function (alias, username, hostname) {
     const [aliasName, user] = keyToUse.split(':');
     const host = allCreds[keyToUse].host;
 
-    if (!host) {
-        console.log(chalk.red(`❌ No se encontró host definido para ${user}@${aliasName}`));
-        return;
+    // Obtener contraseña: primero keytar, si falla fallback
+    let password = null;
+    let origen = chalk.green('keytar');
+
+    if (keytar) {
+        password = await keytar.getPassword('koram', keyToUse);
     }
 
-    const password = await keytar.getPassword('koram', keyToUse);
+    if (!password && allCreds[keyToUse].password) {
+        password = allCreds[keyToUse].password;
+        origen = chalk.yellow('fallback ⚠️');
+    }
+
     return {
-        alias,
+        alias: aliasName,
         user,
         host,
-        password
+        password,
+        origen
     };
-}
+};

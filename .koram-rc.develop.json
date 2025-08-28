@@ -1,0 +1,25 @@
+{
+  "environment": "development",
+  "server": {
+    "host": "64.23.174.86",
+    "user": "root",
+    "port": 22,
+    "sshKey": "/Users/dickocampodavila/KOMARCA/SSHS/bicicheck"
+  },
+  "deploy": {
+    "repository": "",
+    "branch": "main",
+    "path": "/var/www/mi-app",
+    "preDeploy": [],
+    "postDeploy": []
+  },
+  "processes": {
+    "app": {
+      "command": "pm2 start dist/index.js --name mi-app",
+      "logsPath": "/var/log/mi-app.log"
+    }
+  },
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
