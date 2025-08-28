@@ -2,19 +2,19 @@ const { Command, flags } = require('@oclif/command');
 const fs = require('fs');
 const path = require('path');
 const glob = require('glob');
+const Table = require('cli-table3');
+const chalk = require('chalk');
 
 class ProjectsListCommand extends Command {
   async run() {
     const { flags } = this.parse(ProjectsListCommand);
-
     const baseDir = flags.dir || process.cwd(); // Directorio donde buscar
 
     // Patrones de exclusión
     const ignoreDirs = ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'];
 
     // Buscar recursivamente todos los .koram-rc incluyendo entornos (.development, .staging, etc)
-    const pattern = path.join(baseDir, '**/.koram-rc*');
-
+    const pattern = path.join(baseDir, '**/.koram-rc*.json');
     const files = glob.sync(pattern, { nodir: true, ignore: ignoreDirs });
 
     if (files.length === 0) {
@@ -22,7 +22,7 @@ class ProjectsListCommand extends Command {
       return;
     }
 
-    // Agrupar por carpeta para identificar un proyecto
+    // Agrupar por carpeta
     const projects = {};
     files.forEach(file => {
       const dir = path.dirname(file);
@@ -33,27 +33,43 @@ class ProjectsListCommand extends Command {
     this.log(`🔍 Se encontraron ${Object.keys(projects).length} proyecto(s):\n`);
 
     for (const [dir, rcFiles] of Object.entries(projects)) {
-      this.log(`📂 Carpeta: ${dir}`);
+      this.log(chalk.green(`📂 Proyecto en carpeta local: ${dir}`));
+
+      // Tabla para cada proyecto
+      const table = new Table({
+        head: ['App Name', 'Host', 'Remote Path', 'Env', 'Port', 'RC File'],
+        style: { head: ['cyan'], border: [] },
+        wordWrap: true,
+        colWidths: [20, 18, 45, 25, 15, 55]
+      });
+
       for (const file of rcFiles) {
         try {
           const content = fs.readFileSync(file, 'utf-8');
           const config = JSON.parse(content);
 
-          const name = config.app_name || 'sin-nombre';
-          const host = config.host || '-';
-          const remotePath = config.remote_path || '-';
-          const buildEnv = config.build_env || path.basename(file).replace('.koram-rc', '') || '-';
+          const environment = config.environment || path.basename(file).replace('.koram-rc', '');
+          const host = config.server?.host || '-';
+          const remotePath = config.deploy?.path || '-';
+          const appCommand = config.processes?.app?.command || '-';
 
-          this.log(`  • ${name}`);
-          this.log(`    Host: ${host}`);
-          this.log(`    Remote Path: ${remotePath}`);
-          this.log(`    Build Env: ${buildEnv}`);
-          this.log(`    Path: ${file}`);
+          // Extraer appname de la cadena pm2 start ... --name appname
+          let appname = '-';
+          const match = /--name\s+([^\s]+)/.exec(appCommand);
+          if (match) appname = match[1];
+
+          const port = config.env?.PORT || '-';
+          // const preDeploy = config.deploy?.preDeploy?.join(' && ') || '-';
+          // const postDeploy = config.deploy?.postDeploy?.join(' && ') || '-';
+
+          table.push([appname, host, remotePath, environment, port, file]);
         } catch (err) {
-          this.log(`❌ Error leyendo ${file}: ${err.message}`);
+          this.log(chalk.red(`❌ Error leyendo ${file}: ${err.message}`));
         }
       }
-      this.log(''); // línea vacía entre proyectos
+
+      this.log(table.toString());
+      this.log(''); // Línea vacía entre proyectos
     }
   }
 }

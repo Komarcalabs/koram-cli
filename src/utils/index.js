@@ -12,9 +12,7 @@ try {
 } catch (err) {
   keytar = null;
 }
-
 module.exports.selectKoramConfig = async function (projectRoot, envFlag) {
-
     let configPath;
     if (envFlag) {
         // Si el usuario pasó -e
@@ -25,11 +23,9 @@ module.exports.selectKoramConfig = async function (projectRoot, envFlag) {
     } else {
         // Buscar todos los .koram-rc.*.json
         const configs = glob.sync(path.join(projectRoot, `.koram-rc.*.json`));
-
         if (configs.length === 0) {
             throw new Error(`❌ No se encontró ningún archivo .koram-rc.*.json en ${projectRoot}`);
         }
-
         if (configs.length === 1) {
             configPath = configs[0]; // Solo uno → usar ese directamente
         } else {
@@ -48,7 +44,6 @@ module.exports.selectKoramConfig = async function (projectRoot, envFlag) {
             configPath = chosen;
         }
     }
-
     return configPath;
 }
 
