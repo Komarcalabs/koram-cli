@@ -215,7 +215,7 @@ class DeployerApp(QWidget):
 
         # --- Ruta remota ---
         server_layout2 = QHBoxLayout()
-        self.path_input = QLineEdit(); self.path_input.setPlaceholderText("Ruta remota")
+        self.path_input = QLineEdit(); self.path_input.setPlaceholderText("Ruta remota (deploy.path)")
         server_layout2.addWidget(QLabel("Ruta remota:"))
         server_layout2.addWidget(self.path_input)
         main_layout.addLayout(server_layout2)
@@ -315,21 +315,27 @@ class DeployerApp(QWidget):
         if os.path.exists(rc_file):
             with open(rc_file, 'r') as f:
                 rc_data = json.load(f)
-            self.user_input.setText(rc_data.get('user', ''))
-            self.host_input.setText(rc_data.get('host', ''))
-            self.password_input.setText(decrypt_password(rc_data.get('password', '')))
-            self.path_input.setText(rc_data.get('remote_path', ''))
-            self.appname_input.setText(rc_data.get('app_name', ''))
-            self.port_build_input.setText(str(rc_data.get('port_build', '3000')))
-            self.pre_cmd_input.setText(rc_data.get('pre_command', ''))
+
+            server = rc_data.get("server", {})
+            deploy = rc_data.get("deploy", {})
+            processes = rc_data.get("processes", {})
+            env_vars = rc_data.get("env", {})
+
+            self.user_input.setText(server.get("user", ""))
+            self.host_input.setText(server.get("host", ""))
+            self.password_input.setText(decrypt_password(server.get("password", "")))
+            self.path_input.setText(deploy.get("path", ""))
+            self.appname_input.setText(processes.get("app", {}).get("command", "").split("--name")[-1].strip() if "app" in processes else "")
+            self.port_build_input.setText(str(env_vars.get("PORT", "3000")))
+            self.pre_cmd_input.setText(" && ".join(deploy.get("preDeploy", [])))
 
             self.env_table.setRowCount(0)
-            env_vars = rc_data.get('environment', {})
             for k, v in env_vars.items():
-                row = self.env_table.rowCount()
-                self.env_table.insertRow(row)
-                self.env_table.setItem(row, 0, QTableWidgetItem(k))
-                self.env_table.setItem(row, 1, QTableWidgetItem(v))
+                if k != "PORT":
+                    row = self.env_table.rowCount()
+                    self.env_table.insertRow(row)
+                    self.env_table.setItem(row, 0, QTableWidgetItem(k))
+                    self.env_table.setItem(row, 1, QTableWidgetItem(v))
 
     def log(self, message):
         self.log_output.append(message)
@@ -357,19 +363,36 @@ class DeployerApp(QWidget):
                 val = val_item.text().strip()
                 if key:
                     env_vars[key] = val
+        env_vars["PORT"] = app_port
 
         config = {
-            "host": host,
-            "port_build": app_port,
-            "user": user,
-            "password": encrypt_password(password),
-            "remote_path": remote_path,
-            "app_name": appname,
-            "environment": env_vars,
-            "pre_command": pre_command
+            "environment": build_env_name,
+            "server": {
+                "host": host,
+                "user": user,
+                "port": 22,
+                "password": encrypt_password(password) if password else "",
+                "sshKey": ""
+            },
+            "deploy": {
+                "repository": "",
+                "branch": "main",
+                "path": remote_path,
+                "preDeploy": [pre_command] if pre_command else [],
+                "postDeploy": []
+            },
+            "processes": {
+                "app": {
+                    "command": f"pm2 start dist/index.js --name {appname}",
+                    "logsPath": f"/var/log/{appname}.log"
+                }
+            },
+            "env": env_vars
         }
+
         with open(self.rc_path, 'w') as f:
             json.dump(config, f, indent=2)
+
         self.log(f"💾 Configuración guardada en {self.rc_path}")
 
         self.worker = DeployWorker(host, user, password, remote_path, appname, app_port, self.rc_path,

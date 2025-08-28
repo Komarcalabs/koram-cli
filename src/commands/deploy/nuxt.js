@@ -2,6 +2,7 @@ const { Command, flags } = require('@oclif/command');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { selectKoramConfig, getCredentialByKey } = require('../../utils/index');
 
 class DeployCommand extends Command {
   async run() {
@@ -15,29 +16,35 @@ class DeployCommand extends Command {
     }
 
     const deployerPath = path.join(cliRootPath, 'src/python-deployer/main.py');
-
     // Leer configuración del proyecto
     const projectRoot = process.cwd();
-    const rcPath = path.join(projectRoot, '.koram-rc');
-    let config = {};
-    if (fs.existsSync(rcPath)) {
-      config = JSON.parse(fs.readFileSync(rcPath, 'utf-8'));
+    let configFile = {}
+    const alias = args.alias;
+    if (!alias) {
+      return log.error('Debes indicar un alias de servidor');
     }
 
+    let credentials = {};
+    let rcPath = await selectKoramConfig(projectRoot, flags.env)
+    configFile = JSON.parse(
+      fs.readFileSync(rcPath)
+    );
+    credentials = await getCredentialByKey(null, configFile.user, configFile.host);
+
     // Sobrescribir con flags
-    const host = flags.host || config.host || '';
-    const user = flags.user || config.user || '';
-    const remotePath = flags.path || config.remote_path || '';
-    const appName = config.app_name || '';
+    const host = flags.host || configFile.server.host || '';
+    const user = flags.user || configFile.server.user || '';
+    const remotePath = flags.path || configFile.deploy.path || '';
+    const appName = configFile.name || '';
 
     // Ejecutar Python con variables de entorno
     const pyProcess = spawn(venvPythonPath, [deployerPath], {
       shell: true,
-      env: { 
-        ...process.env, 
-        HOST: host, 
-        USER: user, 
-        REMOTE_PATH: remotePath, 
+      env: {
+        ...process.env,
+        HOST: host,
+        USER: user,
+        REMOTE_PATH: remotePath,
         APP_NAME: appName,
         RC_PATH: rcPath // Pasamos la ruta del .koram-rc
       }

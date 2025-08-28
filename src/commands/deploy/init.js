@@ -29,7 +29,7 @@ class DeployInitCommand extends Command {
       deploy: {
         repository: flags.repository || '',
         branch: flags.branch || 'main',
-        targetPath: flags.path || `/var/www/${flags.appName || 'mi-app'}`,
+        path: flags.path || `/var/www/${flags.appName || 'mi-app'}`,
         preDeploy: [],
         postDeploy: []
       },
