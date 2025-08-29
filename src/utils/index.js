@@ -47,7 +47,6 @@ module.exports.selectKoramConfig = async function (projectRoot, envFlag) {
     return configPath;
 }
 
-
 module.exports.getCredentialByKey = async function(alias, username, hostname) {
     // Leer credenciales
     const credFile = path.join(os.homedir(), '.koram_credentials.json');
@@ -96,9 +95,16 @@ module.exports.getCredentialByKey = async function(alias, username, hostname) {
     let origen = chalk.green('keytar');
 
     if (keytar) {
-        password = await keytar.getPassword('koram', keyToUse);
+        try {
+            password = await keytar.getPassword('koram', keyToUse);
+        } catch (err) {
+            // Si Keytar falla, usar fallback
+            password = allCreds[keyToUse].password || null;
+            origen = chalk.yellow('fallback ⚠️');
+        }
     }
 
+    // Si keytar no estaba disponible o no devolvió nada, fallback
     if (!password && allCreds[keyToUse].password) {
         password = allCreds[keyToUse].password;
         origen = chalk.yellow('fallback ⚠️');
