@@ -143,14 +143,15 @@ class DeployWorker(QThread):
 
             if self.optimize_npm:
                 npm_cmds = (
-                    "(npm ci --omit=dev --prefer-offline --no-audit || npm ci --omit=dev) && "
+                    "(npm ci --omit=dev --omit=optional --prefer-offline --no-audit || npm ci --omit=dev --omit=optional) && "
                     "npm rebuild --update-binary --build-from-source && "
                 )
             else:
                 npm_cmds = (
-                    "npm ci --omit=dev && "
+                    "npm ci --omit=dev --omit=optional && "
                     "npm rebuild --update-binary && "
                 )
+
 
             # 🔹 Limpieza correcta (no borrar el tar antes de extraerlo)
             remote_cmds += (
