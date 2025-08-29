@@ -140,15 +140,15 @@ class DeployWorker(QThread):
             remote_cmds = f"cd {self.remote_path} && "
             if self.pre_commands:
                 remote_cmds += " && ".join(self.pre_commands) + " && "
-
+            # --omit=optional
             if self.optimize_npm:
                 npm_cmds = (
-                    "(npm ci --omit=dev --omit=optional --prefer-offline --no-audit || npm ci --omit=dev --omit=optional) && "
+                    "(npm ci --omit=dev --prefer-offline --no-audit || npm ci --omit=dev) && "
                     "npm rebuild --update-binary --build-from-source && "
                 )
             else:
                 npm_cmds = (
-                    "npm ci --omit=dev --omit=optional && "
+                    "npm ci --omit=dev && "
                     "npm rebuild --update-binary && "
                 )
 
