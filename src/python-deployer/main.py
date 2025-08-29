@@ -143,7 +143,7 @@ class DeployWorker(QThread):
 
             if self.optimize_npm:
                 npm_cmds = (
-                    "npm ci --omit=dev --prefer-offline --no-audit || npm ci --omit=dev && "
+                    "(npm ci --omit=dev --prefer-offline --no-audit || npm ci --omit=dev) && "
                     "npm rebuild --update-binary --build-from-source && "
                 )
             else:
@@ -158,7 +158,6 @@ class DeployWorker(QThread):
                 "tar --overwrite -xzf nuxt-output.tar.gz && "
                 "rm nuxt-output.tar.gz && "
                 + npm_cmds +
-                "npm rebuild --update-binary && "
                 "export $(cat .env | xargs) && "
             )
 
