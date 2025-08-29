@@ -84,9 +84,11 @@ class DeployWorker(QThread):
 
             self.log("🧹 Limpiando node_modules y package-lock.json locales...")
             subprocess.run(["rm", "-rf", "node_modules", "package-lock.json"], check=True)
-            subprocess.run(["npm", "install"], check=True, env=env)
-
+            # Genera el package-lock.json sin instalar dependencias
+            subprocess.run(["npm", "install", "--package-lock-only","--ignore-scripts"], check=True, env=env)
+            # Instala de forma limpia usando el lockfile
             subprocess.run(["npm", "ci", "--omit=dev", "--no-progress"], check=True, env=env)
+            # Construye la app
             subprocess.run(["npm", "run", "build", "--", "--no-progress"], check=True, env=env)
 
             # Detectar carpeta de salida (Nuxt3: .output, Nuxt2: .nuxt)
@@ -140,11 +142,12 @@ class DeployWorker(QThread):
             remote_cmds = f"cd {self.remote_path} && "
             if self.pre_commands:
                 remote_cmds += " && ".join(self.pre_commands) + " && "
-            # --omit=optional
+            # --omit=optional con fallback
+            
             if self.optimize_npm:
                 npm_cmds = (
                     "(npm ci --omit=dev --prefer-offline --no-audit || npm ci --omit=dev) && "
-                    "npm rebuild --update-binary --build-from-source && "
+                    "(npm rebuild --update-binary --build-from-source || npm rebuild --update-binary) && "
                 )
             else:
                 npm_cmds = (
