@@ -5,6 +5,7 @@ const chalk = require('chalk');
 const { spawn } = require('child_process');
 const { selectKoramConfig, getCredentialByKey } = require('../utils/index');
 const ora = require('ora');
+const { Client } = require('ssh2'); // fallback sin sshpass
 
 class SshCommand extends Command {
   async run() {
@@ -58,19 +59,70 @@ class SshCommand extends Command {
 
       let sshProcess;
 
-      // ---- Si hay password, usamos sshpass para evitar prompt ----
       if (password && !useSSHKey) {
-        sshProcess = spawn('sshpass', ['-p', password, 'ssh', ...sshArgs], { stdio: 'inherit' });
+        // ---- Intentamos usar sshpass ----
+        try {
+          sshProcess = spawn('sshpass', ['-p', password, 'ssh', ...sshArgs], { stdio: 'inherit' });
+
+          sshProcess.on('error', (err) => {
+            if (err.code === 'ENOENT') {
+              this.log(chalk.yellow('⚠️  sshpass no está instalado, usando fallback ssh2...'));
+              this.connectWithSsh2({ user, host, password });
+            } else {
+              this.log(chalk.red(`❌ Error SSH: ${err.message}`));
+            }
+          });
+
+        } catch (err) {
+          if (err.code === 'ENOENT') {
+            this.log(chalk.yellow('⚠️  sshpass no está instalado, usando fallback ssh2...'));
+            this.connectWithSsh2({ user, host, password });
+          } else {
+            this.log(chalk.red(`❌ ${err.message}`));
+          }
+        }
+
       } else {
+        // ---- Si hay sshKey o no hay password, usamos ssh normal ----
         sshProcess = spawn('ssh', sshArgs, { stdio: 'inherit' });
       }
 
-      sshProcess.on('exit', (code) => {
-        this.log(chalk.gray(`\n🔌 Conexión cerrada (código ${code})`));
-      });
+      if (sshProcess) {
+        sshProcess.on('exit', (code) => {
+          this.log(chalk.gray(`\n🔌 Conexión cerrada (código ${code})`));
+        });
+      }
+
     } catch (error) {
       this.log(chalk.red(`❌ ${error.message}`));
     }
+  }
+
+  connectWithSsh2({ user, host, password }) {
+    const conn = new Client();
+    conn.on('ready', () => {
+      console.log(chalk.green('✅ Conectado con ssh2 (fallback)\n'));
+      conn.shell((err, stream) => {
+        if (err) {
+          console.error(chalk.red('❌ Error al iniciar shell:'), err.message);
+          conn.end();
+          return;
+        }
+        process.stdin.pipe(stream);
+        stream.pipe(process.stdout);
+        stream.stderr.pipe(process.stderr);
+
+        stream.on('close', () => {
+          console.log(chalk.gray('🔌 Conexión cerrada (ssh2 fallback)'));
+          conn.end();
+        });
+      });
+    }).connect({
+      host,
+      port: 22,
+      username: user,
+      password
+    });
   }
 }
 
