@@ -44,7 +44,13 @@ class SshCommand extends Command {
 
       const spinner = ora(`Iniciando conexión SSH a ${user}@${host}...`).start();
 
-      const sshArgs = ['-o', 'StrictHostKeyChecking=no', `${user}@${host}`];
+      // 👉 Keepalive args para evitar que muera la sesión
+      const sshArgs = [
+        '-o', 'StrictHostKeyChecking=no',
+        '-o', 'ServerAliveInterval=60',
+        '-o', 'ServerAliveCountMax=3',
+        `${user}@${host}`
+      ];
       if (useSSHKey && sshKeyPath) sshArgs.unshift('-i', sshKeyPath);
 
       spinner.stop();
@@ -82,6 +88,11 @@ class SshCommand extends Command {
     const conn = new Client();
     conn.on('ready', () => {
       console.log(chalk.green('✅ Conectado con ssh2 (fallback interactivo)\n'));
+
+      // 👉 Activar keepalive en ssh2
+      conn.keepaliveInterval = 60000; // cada 60s
+      conn.keepaliveCountMax = 3;
+
       conn.shell({ term: 'xterm-color', cols: process.stdout.columns || 80, rows: process.stdout.rows || 24 }, (err, stream) => {
         if (err) {
           console.error(chalk.red('❌ Error al iniciar shell:'), err.message);
