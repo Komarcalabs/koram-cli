@@ -59,7 +59,7 @@ class SpriteServeCommand extends Command {
 
         let spriteContent = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" style="display:none;">\n  <defs>\n`;
 
-        const iconData = []; // [{ id, group, relativePath }]
+        const iconData = []; // [{ id, group, path, viewBox }]
 
         files.forEach(file => {
           try {
@@ -81,7 +81,7 @@ class SpriteServeCommand extends Command {
             const group = path.dirname(relativePath) === '.' ? 'root' : path.dirname(relativePath);
             const symbolId = prefixIcon ? `${prefixIcon}-${iconName}` : iconName;
 
-            iconData.push({ id: symbolId, group, path: relativePath });
+            iconData.push({ id: symbolId, group, path: relativePath, viewBox });
 
             spriteContent += `    <symbol id="${symbolId}" viewBox="${viewBox}">\n      ${innerContent}\n    </symbol>\n`;
           } catch (err) {
@@ -147,8 +147,10 @@ ${Object.entries(groupedIcons).map(([group, icons]) => `
     `).join('')}
   </div>
 `).join('')}
+
 <script>
   const hrefPrefix = "${hrefPrefix}";
+  const iconsData = ${JSON.stringify(iconData, null, 2)};
 
   function filterIcons(query) {
     const icons = document.querySelectorAll('.icon');
@@ -163,7 +165,8 @@ ${Object.entries(groupedIcons).map(([group, icons]) => `
     const tooltip = icon.querySelector('.tooltip');
     icon.addEventListener('click', () => {
       const name = icon.getAttribute('data-name');
-      const code = \`<svg><use xlink:href="\${hrefPrefix ? hrefPrefix + '#' : '#'}\${name}"></use></svg>\`;
+      const iconInfo = iconsData.find(i => i.id === name);
+      const code = \`<svg viewBox="\${iconInfo?.viewBox || '0 0 24 24'}"><use xlink:href="\${hrefPrefix ? hrefPrefix + '#' : '#'}\${name}"></use></svg>\`;
       navigator.clipboard.writeText(code).then(() => {
         tooltip.style.opacity = 1;
         setTimeout(() => tooltip.style.opacity = 0, 1200);
@@ -188,6 +191,7 @@ ${Object.entries(groupedIcons).map(([group, icons]) => `
         return [];
       }
     }
+
 
     if (!useUI) {
       await generateSprite();
