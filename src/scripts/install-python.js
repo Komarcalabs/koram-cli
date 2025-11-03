@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// COMANDO PARA INSTALAR PYTHON EN MULTISISTEMA SI SALEN ERRORES
+// COMANDO PARA INSTALAR PYTHON EN MULTISISTEMA SI SALEN ERRORES -----> para el post install
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
