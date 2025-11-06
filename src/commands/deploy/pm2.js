@@ -41,7 +41,7 @@ class DeployCommand extends Command {
     }
 
     // Usamos require para importar el archivo
-    var tryPath = path.resolve(process.cwd(),ecosystemFile)
+    var tryPath = path.resolve(process.cwd(), ecosystemFile)
     delete require.cache[require.resolve(tryPath)];
     var ecosystemConfig = require(tryPath);
 
@@ -69,12 +69,25 @@ class DeployCommand extends Command {
     }
     console.log(chalk.blue(`🔹 Comando final: Ejecutando pm2 deploy.....`));
     // Ejecutar PM2 deploy localmente
+
+    const logPath = path.resolve(process.cwd(), 'deploy_debug.log');
+    const logFile = fs.createWriteStream(logPath, { flags: 'a' });
+    // const deployProcess = spawn(pm2Command, { shell: true });
     const deployProcess = spawn(pm2Command, { shell: true, stdio: 'inherit' });
+    deployProcess.stdout.on('data', data => {
+      process.stdout.write(data);
+      logFile.write(data);
+    });
+    deployProcess.stderr.on('data', data => {
+      process.stderr.write(data);
+      logFile.write(data);
+    });
     deployProcess.on('exit', code => {
+      logFile.end();
       if (code === 0) {
-        console.log(chalk.green('✅ Deploy completado con éxito'));
+        console.log('✅ Deploy completado con éxito');
       } else {
-        console.log(chalk.red(`❌ Deploy finalizó con código ${code}`));
+        console.log(`❌ Deploy falló con código ${code}. Revisa ${logPath}`);
       }
     });
   }
