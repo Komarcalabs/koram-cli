@@ -73,7 +73,7 @@ class DeployCommand extends Command {
     const logPath = path.resolve(process.cwd(), 'deploy_debug.log');
     const logFile = fs.createWriteStream(logPath, { flags: 'a' });
     // const deployProcess = spawn(pm2Command, { shell: true });
-    const deployProcess = spawn(pm2Command, { shell: true, stdio: 'inherit' });
+    const deployProcess = spawn(pm2Command, { shell: true });
     deployProcess.stdout.on('data', data => {
       process.stdout.write(data);
       logFile.write(data);
