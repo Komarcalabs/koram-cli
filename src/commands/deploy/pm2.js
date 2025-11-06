@@ -1,3 +1,5 @@
+// TODO EN EL PROCESO DE INSTALACION CONTENTEMPLAR INSTALAR SSHPASS AL USUARIO PARA QUE TENGA LISTO ESO TAMBIEN
+// SOPORTE PARA QUE SOPORTE ALIAS LOCAL DE . ----> BUSCA KORAM SINO BUSCA EN EL ENTORNO POR EL HOST
 // src/commands/deploy.js
 const { Command, flags } = require('@oclif/command');
 const keytar = require('keytar');
