@@ -8,6 +8,7 @@ const path = require('path');
 const chalk = require('chalk');
 const inquirer = require('inquirer');
 const { spawn } = require('child_process');
+const os = require('os')
 const { getCredentialByKey } = require('../../utils/index');
 
 class DeployCommand extends Command {
@@ -65,8 +66,17 @@ class DeployCommand extends Command {
     let pm2Command = `pm2 deploy ${ecosystemFile} ${env} ${extraParams}`.trim();
     // Si se usa contraseña, prefijamos con sshpass
     if (password) {
-      pm2Command = `sshpass -p '${password}' ${pm2Command}`;
+
+      // 1️⃣ Crear archivo temporal con el password
+      const tmpDir = os.tmpdir();
+      const passFile = path.join(tmpDir, `koram_pass_${Date.now()}.txt`);
+      fs.writeFileSync(passFile, password + '\n', { mode: 0o600 });
+
+      // pm2Command = `sshpass -p '${password}' ${pm2Command}`;
+      // 2️⃣ Usar -f (file) en sshpass → evita problemas con $, !, etc.
+      pm2Command = `sshpass -f '${passFile}' ${pm2Command}`;
     }
+
     console.log(chalk.blue(`🔹 Comando final: Ejecutando pm2 deploy.....`));
     // Ejecutar PM2 deploy localmente
 
