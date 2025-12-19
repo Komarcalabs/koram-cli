@@ -8,6 +8,9 @@ import re
 import base64
 import getpass
 import platform
+import hashlib
+import threading
+import shutil
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -73,14 +76,33 @@ class DeployWorker(QThread):
 
     def run(self):
         try:
+            # --- PARALLEL SSH CONNECTION ---
+            self.ssh = None
+            self.ssh_error = None
+            
+            def connect_ssh():
+                try:
+                    self.log(f"🔌 Conectando a {self.host} (en segundo plano)...")
+                    client = paramiko.SSHClient()
+                    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                    if self.password:
+                        client.connect(self.host, username=self.user, password=self.password, timeout=15)
+                    else:
+                        client.connect(self.host, username=self.user, timeout=15)
+                    self.ssh = client
+                    self.log("✅ Conexión SSH establecida.")
+                except Exception as ex:
+                    self.ssh_error = ex
+
+            ssh_thread = threading.Thread(target=connect_ssh)
+            ssh_thread.start()
+
+            # --- BUILD LOCAL ---
             self.log(f"🚀 Iniciando build local usando {self.build_env}...")
             env = os.environ.copy()
             env['NODE_ENV'] = self.build_env
             for k, v in self.env_vars.items():
                 env[k] = v
-
-            result = subprocess.run(["node", "-v"], capture_output=True, text=True)
-            self.log(f"🔹 Node.js versión local: {result.stdout.strip()}")
 
             if self.optimize_npm:
                 self.log("🚀 Build optimizado local: Instalando dependencias (incremental)...")
@@ -99,6 +121,7 @@ class DeployWorker(QThread):
             output_dir = ".output" if os.path.exists(".output") else ".nuxt"
             if not os.path.exists(output_dir):
                 self.log(f"❌ Directorio de build no encontrado (.output o .nuxt).")
+                ssh_thread.join() # Esperar a que termine el thread si fallamos
                 self.finished_signal.emit(False)
                 return
 
@@ -107,28 +130,100 @@ class DeployWorker(QThread):
                 self.log("🧹 Limpiando node_modules nativos del build local...")
                 subprocess.run(["rm", "-rf", server_node_modules], check=True)
 
-            self.log("📦 Empaquetando archivos...")
-            files_to_pack = [output_dir, "package.json", "package-lock.json", "public"]
-            existing_files = [f for f in files_to_pack if os.path.exists(f)]
-            subprocess.run([
-                "tar", "--no-xattrs", "--dereference", "-czf", "nuxt-output.tar.gz", *existing_files
-            ], check=True)
-
-            self.log(f"🔌 Conectando a {self.host}...")
-            ssh = paramiko.SSHClient()
-            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-            if self.password:
-                ssh.connect(self.host, username=self.user, password=self.password, timeout=15)
-            else:
-                ssh.connect(self.host, username=self.user, timeout=15)
+            # --- ESPERAR SSH ---
+            ssh_thread.join()
+            if self.ssh_error:
+                raise self.ssh_error
+            
+            ssh = self.ssh
 
             self.log("📁 Asegurando carpeta remota...")
             ssh.exec_command(f"mkdir -p {self.remote_path}")
 
-            self.log("⬆️ Subiendo build...")
-            with SCPClient(ssh.get_transport()) as scp:
-                scp.put("nuxt-output.tar.gz", self.remote_path)
+            # --- RSYNC UPLOAD (OPTIMIZACIÓN) ---
+            has_rsync = shutil.which("rsync") is not None
+            
+            if has_rsync:
+                self.log("⚡ Usando Rsync para subida delta...")
+                # Construir string de conexión rsync (necesita sshpass si hay password, o ssh keys)
+                # NOTA: Usar rsync directamente con password es complicado sin sshpass.
+                # Si tenemos password, fallback a SCP por simplicidad/compatibilidad si no hay sshpass.
+                has_sshpass = shutil.which("sshpass") is not None
+                
+                use_rsync = True
+                if self.password and not has_sshpass:
+                    self.log("⚠️ Password detectado pero 'sshpass' no instalado. Rsync necesita sshpass para passwords. Usando SCP.")
+                    use_rsync = False
+                
+                if use_rsync:
+                    rsync_target = f"{self.user}@{self.host}:{self.remote_path}/"
+                    
+                    # 1. Subir .output (o .nuxt)
+                    self.log(f"⬆️ Sincronizando {output_dir}...")
+                    rsync_cmd = ["rsync", "-az", "--delete", "--no-perms", "--no-owner", "--no-group", f"{output_dir}/", f"{rsync_target}{output_dir}/"]
+                    
+                    if self.password:
+                        # sshpass -p PASSWORD rsync ...
+                        final_cmd = ["sshpass", "-p", self.password] + rsync_cmd
+                    else:
+                        final_cmd = rsync_cmd
+
+                    # Ejecutar rsync local -> remote
+                    # Necesitamos pasar StrictHostKeyChecking=no para evitar prompts
+                    rsync_rsh = "--rsh=ssh -o StrictHostKeyChecking=no"
+                    final_cmd.insert(len(final_cmd)-2, rsync_rsh) # Insertar antes de los paths
+
+                    try:
+                        subprocess.run(final_cmd, check=True)
+                        
+                        # 2. Subir otros archivos (package.json, lock, public, etc)
+                        files_to_sync = ["package.json", "package-lock.json", "public"]
+                        for f in files_to_sync:
+                            if os.path.exists(f):
+                                sub_cmd = list(final_cmd) # Copia
+                                sub_cmd[-2] = f # Source
+                                sub_cmd[-1] = rsync_target # Target
+                                subprocess.run(sub_cmd, check=True)
+                                
+                    except subprocess.CalledProcessError as e:
+                        self.log(f"⚠️ Rsync falló (ret {e.returncode}). Reintentando con SCP...")
+                        has_rsync = False # Trigger fallback logic below
+
+            if not has_rsync:
+                self.log("📦 Empaquetando archivos (Modo Legacy)...")
+                files_to_pack = [output_dir, "package.json", "package-lock.json", "public"]
+                existing_files = [f for f in files_to_pack if os.path.exists(f)]
+                subprocess.run([
+                    "tar", "--no-xattrs", "--dereference", "-czf", "nuxt-output.tar.gz", *existing_files
+                ], check=True)
+                
+                self.log("⬆️ Subiendo build (SCP)...")
+                with SCPClient(ssh.get_transport()) as scp:
+                    scp.put("nuxt-output.tar.gz", self.remote_path)
+                    
+                # Extraer en remoto
+                ssh.exec_command(f"cd {self.remote_path} && tar --overwrite -xzf nuxt-output.tar.gz && rm nuxt-output.tar.gz")
+
+
+            # --- SMART INSTALL (OPTIMIZACIÓN) ---
+            self.log("🧠 Verificando cambios en dependencias (Smart Install)...")
+            
+            # Calcular hash local
+            hasher = hashlib.sha256()
+            with open("package-lock.json", "rb") as f:
+                hasher.update(f.read())
+            local_hash = hasher.hexdigest()
+            
+            # Leer hash remoto
+            stdin, stdout, stderr = ssh.exec_command(f"cat {self.remote_path}/.lockhash")
+            remote_hash = stdout.read().decode().strip()
+            
+            should_install = True
+            if local_hash == remote_hash:
+                self.log("✅ Dependencias idénticas. Saltando npm install/rebuild.")
+                should_install = False
+            else:
+                self.log("🔄 Cambios detectados en dependencias. Se ejecutará npm install.")
 
             self.log("📝 Creando archivo .env remoto...")
             env_lines = [f'{k}="{v}"' for k, v in self.env_vars.items()]
@@ -139,6 +234,9 @@ class DeployWorker(QThread):
             sftp = ssh.open_sftp()
             with sftp.file(env_path_remote, 'w') as f:
                 f.write(env_content)
+            # Actualizar .lockhash si vamos a instalar (o si simplemente queremos dejarlo sync)
+            with sftp.file(f"{self.remote_path}/.lockhash", 'w') as f:
+                f.write(local_hash)
             sftp.close()
 
             self.log("⚙️ Ejecutando comandos en servidor...")
@@ -148,33 +246,31 @@ class DeployWorker(QThread):
                 remote_cmds += " && ".join(self.pre_commands) + " && "
             # --omit=optional con fallback
             
-            if self.optimize_npm:
-                npm_cmds = (
-                    "npm install --omit=dev --prefer-offline --no-audit --no-progress && "
+            if should_install:
+                if self.optimize_npm:
+                    npm_cmds = (
+                        "npm install --omit=dev --prefer-offline --no-audit --no-progress && "
+                    )
+                else:
+                    npm_cmds = (
+                        "npm ci --omit=dev && "
+                    )
+
+                # Usar rebuild solo si es estrictamente necesario o si el usuario tiene herramientas de build
+                # En servidores minimalistas (sin make/python) esto falla.
+                # npm install ya debería traer binarios precompilados.
+                # Estrategia DE VELOCIDAD + SEGURIDAD:
+                # 1. Intentar --update-binary (RÁPIDO, baja pre-compilados si faltan)
+                # 2. Solo si 1 falla, intentar --build-from-source (LENTO, compila)
+                # 3. Si todo falla, warn y seguir
+                npm_cmds += (
+                    "(npm rebuild --update-binary || npm rebuild --build-from-source || echo '⚠️ npm rebuild warning: continuando...') && "
                 )
-            else:
-                npm_cmds = (
-                    "npm ci --omit=dev && "
-                )
-
-            # Usar rebuild solo si es estrictamente necesario o si el usuario tiene herramientas de build
-            # En servidores minimalistas (sin make/python) esto falla.
-            # npm install ya debería traer binarios precompilados.
-            # Estrategia DE VELOCIDAD + SEGURIDAD:
-            # 1. Intentar --update-binary (RÁPIDO, baja pre-compilados si faltan)
-            # 2. Solo si 1 falla, intentar --build-from-source (LENTO, compila)
-            # 3. Si todo falla, warn y seguir
-            npm_cmds += (
-                "(npm rebuild --update-binary || npm rebuild --build-from-source || echo '⚠️ npm rebuild warning: continuando...') && "
-            )
-
-
-            # 🔹 Limpieza correcta (no borrar el tar antes de extraerlo)
+                remote_cmds += npm_cmds
+            
+            
+            # 🔹 Limpieza correcta
             remote_cmds += (
-                "rm -rf .output public .nuxt .cache && "
-                "tar --overwrite -xzf nuxt-output.tar.gz && "
-                "rm nuxt-output.tar.gz && "
-                + npm_cmds +
                 "export $(cat .env | xargs) && "
             )
 
@@ -194,12 +290,16 @@ class DeployWorker(QThread):
             for line in iter(stderr.readline, ""):
                 if line:
                     self.log(clean_ansi(line.strip()))
-
-            ssh.close()
+            
+            # Close SSH
+            if self.ssh:
+                self.ssh.close()
             self.finished_signal.emit(True)
 
         except Exception as e:
             self.log(f"❌ Error: {e}")
+            if self.ssh:
+                self.ssh.close()
             self.finished_signal.emit(False)
 
     def log(self, message):
