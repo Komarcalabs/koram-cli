@@ -82,13 +82,17 @@ class DeployWorker(QThread):
             result = subprocess.run(["node", "-v"], capture_output=True, text=True)
             self.log(f"🔹 Node.js versión local: {result.stdout.strip()}")
 
-            self.log("🧹 Limpiando node_modules y package-lock.json locales...")
-            subprocess.run(["rm", "-rf", "node_modules", "package-lock.json"], check=True)
-            # Genera el package-lock.json sin instalar dependencias
-            subprocess.run(["npm", "install", "--package-lock-only","--ignore-scripts"], check=True, env=env)
-            # Instala de forma limpia usando el lockfile
-            subprocess.run(["npm", "ci", "--omit=dev", "--no-progress"], check=True, env=env)
+            if self.optimize_npm:
+                self.log("🚀 Build optimizado local: Instalando dependencias (incremental)...")
+                subprocess.run(["npm", "install", "--omit=dev", "--no-progress"], check=True, env=env)
+            else:
+                self.log("🧹 Build limpio local: Limpiando node_modules...")
+                subprocess.run(["rm", "-rf", "node_modules"], check=True)
+                # NO borramos package-lock.json para evitar errores de sincronización
+                subprocess.run(["npm", "ci", "--omit=dev", "--no-progress"], check=True, env=env)
+
             # Construye la app
+            self.log("🔨 Construyendo la app...")
             subprocess.run(["npm", "run", "build", "--", "--no-progress"], check=True, env=env)
 
             # Detectar carpeta de salida (Nuxt3: .output, Nuxt2: .nuxt)
@@ -146,7 +150,7 @@ class DeployWorker(QThread):
             
             if self.optimize_npm:
                 npm_cmds = (
-                    "(npm ci --omit=dev --prefer-offline --no-audit || npm ci --omit=dev) && "
+                    "npm install --omit=dev --prefer-offline --no-audit --no-progress && "
                     "(npm rebuild --update-binary --build-from-source || npm rebuild --update-binary) && "
                 )
             else:
