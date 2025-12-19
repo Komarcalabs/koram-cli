@@ -66,12 +66,10 @@ class DeployCommand extends Command {
     let pm2Command = `pm2 deploy ${ecosystemFile} ${env} ${extraParams}`.trim();
     // Si se usa contraseña, prefijamos con sshpass
     if (password) {
-
       // 1️⃣ Crear archivo temporal con el password
       const tmpDir = os.tmpdir();
       const passFile = path.join(tmpDir, `koram_pass_${Date.now()}.txt`);
       fs.writeFileSync(passFile, password + '\n', { mode: 0o600 });
-
       // pm2Command = `sshpass -p '${password}' ${pm2Command}`;
       // 2️⃣ Usar -f (file) en sshpass → evita problemas con $, !, etc.
       pm2Command = `sshpass -f '${passFile}' ${pm2Command}`;
