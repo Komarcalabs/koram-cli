@@ -151,13 +151,22 @@ class DeployWorker(QThread):
             if self.optimize_npm:
                 npm_cmds = (
                     "npm install --omit=dev --prefer-offline --no-audit --no-progress && "
-                    "(npm rebuild --update-binary --build-from-source || npm rebuild --update-binary) && "
                 )
             else:
                 npm_cmds = (
                     "npm ci --omit=dev && "
-                    "npm rebuild --update-binary && "
                 )
+
+            # Usar rebuild solo si es estrictamente necesario o si el usuario tiene herramientas de build
+            # En servidores minimalistas (sin make/python) esto falla.
+            # npm install ya debería traer binarios precompilados.
+            # Intento multinivel:
+            # 1. Intentar compilar desde fuente (solicitado por user, aunque puede fallar si no hay make)
+            # 2. Si falla 1, intentar solo actualizar binarios pre-compilados
+            # 3. Si falla 2, imprimir warning y continuar sin bloquear deploy
+            npm_cmds += (
+                "(npm rebuild --build-from-source || npm rebuild --update-binary || echo '⚠️ npm rebuild failed, continuing...') && "
+            )
 
 
             # 🔹 Limpieza correcta (no borrar el tar antes de extraerlo)
@@ -377,7 +386,17 @@ class DeployerApp(QWidget):
             self.host_input.setText(server.get("host", ""))
             self.password_input.setText(decrypt_password(server.get("password", "")))
             self.path_input.setText(deploy.get("path", ""))
-            self.appname_input.setText(processes.get("app", {}).get("command", "").split("--name")[-1].strip() if "app" in processes else "")
+            app_cmd = processes.get("app", {}).get("command", "")
+            if "--name" in app_cmd:
+                app_name_candidate = app_cmd.split("--name")[-1].strip().split(" ")[0]
+            else:
+                app_name_candidate = ""
+            
+            # Fallback: Nombre del directorio actual si falla
+            if not app_name_candidate:
+                app_name_candidate = os.path.basename(os.getcwd())
+
+            self.appname_input.setText(app_name_candidate)
             self.port_build_input.setText(str(env_vars.get("PORT", "3000")))
 
             self.pre_table.setRowCount(0)
