@@ -160,12 +160,12 @@ class DeployWorker(QThread):
             # Usar rebuild solo si es estrictamente necesario o si el usuario tiene herramientas de build
             # En servidores minimalistas (sin make/python) esto falla.
             # npm install ya debería traer binarios precompilados.
-            # Intento multinivel:
-            # 1. Intentar compilar desde fuente (solicitado por user, aunque puede fallar si no hay make)
-            # 2. Si falla 1, intentar solo actualizar binarios pre-compilados
-            # 3. Si falla 2, imprimir warning y continuar sin bloquear deploy
+            # Estrategia DE VELOCIDAD + SEGURIDAD:
+            # 1. Intentar --update-binary (RÁPIDO, baja pre-compilados si faltan)
+            # 2. Solo si 1 falla, intentar --build-from-source (LENTO, compila)
+            # 3. Si todo falla, warn y seguir
             npm_cmds += (
-                "(npm rebuild --build-from-source || npm rebuild --update-binary || echo '⚠️ npm rebuild failed, continuing...') && "
+                "(npm rebuild --update-binary || npm rebuild --build-from-source || echo '⚠️ npm rebuild warning: continuando...') && "
             )
 
 
