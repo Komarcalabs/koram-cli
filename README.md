@@ -72,6 +72,7 @@ $ koram [COMMAND]
 | **serve**                  | Sirve tu proyecto Node.js o carpeta estática con live reload y ritual de protección. Opciones de puerto (`-p`) y ejecución automática (`-y`).  |
 | **monitor\*\***:server\*\* | Inicia el Gran Ojo, el servidor central que recibe las visiones de todos tus agentes.                                                          |
 | **monitor\*\***:agent\*\*  | Despliega un centinela en tu VPS para informar constantemente sobre la salud del sistema y PM2.                                                |
+| **monitor\*\***:setup\*\*  | Comandante de flota: despliega automáticamente el Servidor o el Agente en un remoto usando SSH.                                                |
 
 ---
 
@@ -139,6 +140,37 @@ koram deploy bb_server --extra "--update-env"
 ## Koram Monitor (El Ojo que todo lo ve)
 
 `koram monitor` te permite centralizar la vigilancia de múltiples VPS en un solo Dashboard místico.
+
+### Arquitectura Sagrada
+
+- **El Gran Ojo (Servidor Central)**: Actúa como el **Hub**. Se instala solo **UNA VEZ** en un VPS que servirá como tu central de mando.
+- **El Centinela (Agente)**: Actúa como el **Trabajador**. Se instala en **CADA VPS** que quieras vigilar. Los agentes envían ráfagas de datos al Servidor Central.
+
+---
+
+### Despliegue de Monitoreo Automático (Recomendado)
+
+Si ya tienes credenciales guardadas en Koram (mira `koram creds:add`), puedes instalar tanto el **Servidor Central** como los **Agentes** en tus VPS con un solo comando:
+
+```bash
+koram monitor:setup mi-vps-alias
+```
+
+Este comando es interactivo y te permitirá:
+
+1. Elegir entre instalar un **Agente** o el **Servidor Central**.
+2. Configurar los parámetros (URL, puertos, keys, auth) de forma sencilla.
+3. Se encargará de:
+   - Conectarse por SSH.
+   - Verificar **Node.js >= 20**.
+   - Instalar/Actualizar **Koram** globalmente.
+   - Configurar e iniciar el servicio en **PM2** de forma persistente.
+
+---
+
+### Instalación Manual (Paso a Paso)
+
+Si prefieres el camino largo o quieres configurar detalles específicos:
 
 ### 1. El Gran Ojo (Servidor Central)
 
