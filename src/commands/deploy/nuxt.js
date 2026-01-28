@@ -2,17 +2,13 @@ const { Command, flags } = require('@oclif/command');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const { selectKoramConfig, getCredentialByKey } = require('../../utils/index');
+const { selectKoramConfig, getCredentialByKey, ensurePythonEnv } = require('../../utils/index');
 
 class DeployCommand extends Command {
   async run() {
     const { flags } = this.parse(DeployCommand);
     const cliRootPath = path.resolve(__dirname, '../../../');
-    const venvPythonPath = path.join(cliRootPath, 'venv/bin/python3');
-    if (!fs.existsSync(venvPythonPath)) {
-      this.error('El entorno virtual de Python no se encontró. Asegúrate de haber ejecutado `npm install`.');
-      return;
-    }
+    const venvPythonPath = await ensurePythonEnv();
     const deployerPath = path.join(cliRootPath, 'src/python-deployer/main.py');
     // Leer configuración del proyecto
     const projectRoot = process.cwd();

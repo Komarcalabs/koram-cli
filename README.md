@@ -36,6 +36,9 @@ Koram se instala globalmente mediante **npm**:
 npm i -g koram
 ```
 
+> [!TIP]
+> **Koram Smart Lite**: La instalación es rápida y ligera. El entorno de Python (necesario para algunos despliegues Nuxt/SPA) se omitirá si no está disponible. Si luego intentas usar un comando de deploy, Koram te preguntará si deseas configurarlo en ese momento de forma interactiva.
+
 **Uso**:
 
 ```

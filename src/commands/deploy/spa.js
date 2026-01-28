@@ -2,17 +2,15 @@ const { Command, flags } = require('@oclif/command');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const chalk = require('chalk');
+const { ensurePythonEnv } = require('../../utils/index');
 
 class DeploySPACommand extends Command {
   async run() {
     const { flags } = this.parse(DeploySPACommand);
 
     const cliRootPath = path.resolve(__dirname, '../../../');
-    const venvPythonPath = path.join(cliRootPath, 'venv/bin/python3');
-    if (!fs.existsSync(venvPythonPath)) {
-      this.error('El entorno virtual de Python no se encontró. Asegúrate de haber ejecutado `npm install`.');
-      return;
-    }
+    const venvPythonPath = await ensurePythonEnv();
 
     // Ruta de tu nuevo script SPA
     const deployerPath = path.join(cliRootPath, 'src/python-deployer/spa-deployer.py');
@@ -34,7 +32,7 @@ class DeploySPACommand extends Command {
     // Ejecutar Python con variables de entorno
     const pyProcess = spawn(venvPythonPath, [deployerPath], {
       shell: true,
-      env: { 
+      env: {
         ...process.env,
         HOST: host,
         USER: user,
