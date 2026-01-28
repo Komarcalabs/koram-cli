@@ -150,7 +150,7 @@ koram monitor:server --port 3000 --key <tu_secret_key>
   ```bash
   koram monitor:server --port 3000 --key <tu_secret_key> --auth --user admin --pass secreto123
   ```
-  _(Si se activa `--auth`, usa las credenciales definidas o las por defecto: `koram` / `API_KEY`)_.
+  _(Si se activa `--auth`, usa las credenciales definidas o los valores por defecto: Usuario: `koram` / Contraseña: `<la_key_que_definiste_en_-k>`)\_.
 
 ### 2. El Centinela (Agente de Monitoreo)
 
