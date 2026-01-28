@@ -106,10 +106,63 @@ class SetupCommand extends Command {
 
                 if (majorVersion < 20) {
                     spinner.fail(`Versión de Node.js insuficiente: ${nodeVersion.stdout.trim()}`);
-                    this.log(chalk.yellow('💡 Koram requiere Node.js >= 20 para funcionar correctamente.'));
-                    return;
+
+                    const { upgrade } = await inquirer.prompt([{
+                        type: 'confirm',
+                        name: 'upgrade',
+                        message: chalk.yellow(`⚠️  Se requiere Node.js >= 20. ¿Deseas intentar actualizar Node.js a la v20 automáticamente en el VPS?`),
+                        default: true
+                    }]);
+
+                    if (upgrade) {
+                        spinner.start('Verificando si NVM está disponible...');
+                        // Intentamos detectar NVM en los lugares comunes
+                        const checkNvm = await ssh.execCommand('[ -s "$HOME/.nvm/nvm.sh" ] && echo "nvm_found"');
+                        const isNvmPresent = checkNvm.stdout.includes('nvm_found');
+
+                        if (isNvmPresent) {
+                            spinner.text = 'Evolucionando Node.js a la v20 usando NVM...';
+                            const nvmCmd = 'bash -c "source $HOME/.nvm/nvm.sh && nvm install 20 && nvm alias default 20 && nvm use 20"';
+                            const nvmRes = await ssh.execCommand(nvmCmd);
+
+                            if (nvmRes.code === 0) {
+                                spinner.succeed('Node.js actualizado a la v20 mediante NVM.');
+                            } else {
+                                spinner.fail('Falló la actualización por NVM.');
+                                this.log(chalk.red(nvmRes.stderr || nvmRes.stdout));
+                                return;
+                            }
+                        } else {
+                            spinner.info('NVM no detectado. Intentando método alternativo (NodeSource/apt)...');
+                            spinner.start('Evolucionando Node.js a la v20 (esto puede tardar un poco)...');
+                            // Usamos NodeSource para la actualización (asumiendo Ubuntu/Debian/CentOS común)
+                            const upgradeCmd = 'curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs';
+                            const upgradeRes = await ssh.execCommand(upgradeCmd);
+
+                            if (upgradeRes.code !== 0) {
+                                spinner.fail('No se pudo automatizar la actualización.');
+                                this.log(chalk.red(`Error: ${upgradeRes.stderr || upgradeRes.stdout}`));
+                                this.log(chalk.yellow('💡 Intenta actualizar Node.js manualmente en el servidor.'));
+                                return;
+                            }
+                            spinner.succeed('Node.js actualizado mediante NodeSource.');
+                        }
+
+                        // Re-verificar
+                        const newNodeVersion = await ssh.execCommand('node -v');
+                        const newMatch = newNodeVersion.stdout.match(/v(\d+)/);
+                        const newMajor = newMatch ? parseInt(newMatch[1]) : 0;
+
+                        if (newMajor < 20) {
+                            spinner.fail(`La actualización falló o no fue suficiente: ${newNodeVersion.stdout.trim()}`);
+                            return;
+                        }
+                    } else {
+                        return;
+                    }
+                } else {
+                    spinner.succeed(`Node.js ${nodeVersion.stdout.trim()} detectado.`);
                 }
-                spinner.succeed(`Node.js ${nodeVersion.stdout.trim()} detectado.`);
 
                 // 4. Instalar Koram CLI Globalmente
                 spinner.start('Instalando/Actualizando Koram CLI globalmente...');
