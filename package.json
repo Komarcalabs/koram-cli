@@ -1,7 +1,7 @@
 {
   "name": "koram",
   "description": "El Toolkit sagrado del buen Komarquino",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "Dick Van Ocampo",
   "bin": {
     "koram": "./bin/run"
@@ -64,6 +64,6 @@
     "prepack": "oclif-dev manifest && oclif-dev readme",
     "test": "nyc mocha --forbid-only \"test/**/*.test.js\"",
     "version": "oclif-dev readme && git add README.md",
-    "postinstall": "python3 -m venv venv && venv/bin/pip install -r src/python-deployer/requirements.txt"
+    "postinstall": "node src/scripts/install-python.js"
   }
 }
