@@ -1,7 +1,7 @@
 {
   "name": "koram",
   "description": "El Toolkit sagrado del buen Komarquino",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "author": "Dick Van Ocampo",
   "bin": {
     "koram": "./bin/run"

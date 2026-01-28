@@ -91,14 +91,18 @@ class AgentCommand extends Command {
             const urlObj = new URL(apiUrl);
             const lib = urlObj.protocol === 'https:' ? https : http;
 
+            // Construir el path correctamente uniendo el pathname base con el endpoint
+            const baseStatusPath = urlObj.pathname.endsWith('/') ? urlObj.pathname : urlObj.pathname + '/';
+            const finalPath = (baseStatusPath + 'api/report').replace(/\/+/g, '/');
+
             const options = {
                 hostname: urlObj.hostname,
-                port: urlObj.port,
-                path: '/api/report',
+                port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+                path: finalPath,
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Content-Length': data.length,
+                    'Content-Length': Buffer.byteLength(data),
                     'x-api-key': apiKey
                 }
             };
@@ -106,6 +110,8 @@ class AgentCommand extends Command {
             const req = lib.request(options, (res) => {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     resolve();
+                } else if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307 || res.statusCode === 308) {
+                    reject(new Error(`Server returned ${res.statusCode} (Redirect). Intenta usar HTTPS en la URL si el servidor lo requiere.`));
                 } else {
                     reject(new Error(`Server returned ${res.statusCode}`));
                 }
