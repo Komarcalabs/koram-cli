@@ -66,7 +66,17 @@ class AgentCommand extends Command {
                     return;
                 }
                 try {
-                    const list = JSON.parse(data);
+                    // PM2 a veces imprime banners o avisos antes/después del JSON.
+                    // Buscamos el inicio y fin del array JSON.
+                    const start = data.indexOf('[');
+                    const end = data.lastIndexOf(']');
+
+                    if (start === -1 || end === -1) {
+                        throw new Error('No se encontró un array JSON válido en la salida de PM2');
+                    }
+
+                    const jsonStr = data.substring(start, end + 1);
+                    const list = JSON.parse(jsonStr);
                     const simplified = list.map(proc => ({
                         name: proc.name,
                         status: proc.pm2_env.status,
@@ -79,7 +89,7 @@ class AgentCommand extends Command {
                     }));
                     resolve(simplified);
                 } catch (err) {
-                    resolve({ error: 'Failed to parse PM2 output' });
+                    resolve({ error: `Failed to parse PM2 output: ${err.message}` });
                 }
             });
         });
