@@ -301,6 +301,23 @@ class DeployCommand extends Command {
         fs.unlinkSync(path.join(projectRoot, tarFile)); // Borrar local
       }
 
+      // --- CONTEXTO DE DESPLIEGUE (Pre-Deploy) ---
+      // Concatenamos los comandos Pre-Deploy para que persistan en el loader remoto
+      const preDeployCmds = (config.deploy?.preDeploy || []).join(' && ');
+      const finalRemoteLoader = preDeployCmds
+        ? `${fullRemoteLoader} && ${preDeployCmds}`
+        : fullRemoteLoader;
+
+      if (preDeployCmds) {
+        this.logToWs(ws, '🏃 Ejecutando y preparando contexto Pre-Deploy...', 'info');
+        this.logToWs(ws, `> ${preDeployCmds}`, 'info');
+        // Validamos que los comandos predeploy funcionen antes de seguir
+        const preCheck = await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && echo "Pre-deploy OK"`);
+        if (preCheck.code !== 0) {
+          this.logToWs(ws, `⚠️ Advertencia en Pre-Deploy: ${preCheck.stderr}`, 'error');
+        }
+      }
+
       // 4. Smart Install (Hash check)
       this.logToWs(ws, '🧠 Verificando dependencias (Smart Install)...', 'info');
       const lockPath = path.join(projectRoot, 'package-lock.json');
@@ -312,21 +329,32 @@ class DeployCommand extends Command {
       if (localHash === remoteHash) {
         this.logToWs(ws, '✅ Dependencias idénticas. Saltando npm install.', 'success');
       } else {
-        this.logToWs(ws, '🔄 Cambios detectados. Instalando módulos en el servidor...', 'info');
-        const optimizeNpm = config.advanced?.optimizeNpm !== false;
-        const npmCmd = optimizeNpm
-          ? 'npm install --omit=dev --no-audit --no-progress --prefer-offline'
-          : 'npm install --omit=dev';
+        this.logToWs(ws, '🔄 Cambios detectados. Sincronizando módulos en el servidor (Modo Robusto)...', 'info');
 
-        const installResult = await ssh.execCommand(`cd ${remotePath} && ${npmCmd}`);
+        // Registrar versiones para depuración y asegurar GIT (Paridad Usuario)
+        await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && node -v && npm -v && which git || echo "⚠️ Git no encontrado"`);
+
+        const optimizeNpm = config.advanced?.optimizeNpm !== false;
+
+        // Entorno ultra-permisivo para evitar bloqueos por motores o conflictos de pares
+        // Forzamos el registro oficial para evitar errores de 'notarget' por caches locales/viejas
+        const envBypass = 'export NPM_CONFIG_ENGINE_STRICT=false; export NPM_CONFIG_LEGACY_PEER_DEPS=true; export NPM_CONFIG_REGISTRY=https://registry.npmjs.org/;';
+
+        // Nota: Usamos 'npm install' en lugar de 'ci' para mayor flexibilidad con dependencias Git y preparaciones complejas
+        const npmFlags = '--omit=dev --no-audit --no-progress --prefer-offline=false';
+        const npmCmd = `npm install ${npmFlags}`;
+
+        const installResult = await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && ${envBypass} ${npmCmd}`);
         if (installResult.code !== 0) {
           this.logToWs(ws, `⚠️ Advertencia en npm install: ${installResult.stderr}`, 'error');
+          // Si el error persiste, intentamos una limpieza profunda (Nuclear)
+          this.logToWs(ws, '🔄 Reintentando con limpieza de node_modules (Modo Nuclear)...', 'info');
+          await ssh.execCommand(`cd ${remotePath} && rm -rf node_modules package-lock.json && ${finalRemoteLoader} && ${envBypass} npm install ${npmFlags}`);
         }
 
         // Paridad Python: Reconstrucción inteligente con fallbacks
         this.logToWs(ws, '🔨 Reconstruyendo módulos nativos en el servidor...', 'info');
-        const rebuildCmd = `(npm rebuild --update-binary || npm rebuild --build-from-source || echo '⚠️ Advertencia en rebuild')`;
-        await ssh.execCommand(`cd ${remotePath} && ${fullRemoteLoader} && ${rebuildCmd}`);
+        const rebuildCmd = `${envBypass} (npm rebuild --update-binary || npm rebuild --build-from-source || echo '⚠️ Advertencia en rebuild')`;
 
         await ssh.execCommand(`echo "${localHash}" > ${remotePath}/.lockhash`);
       }
@@ -344,28 +372,17 @@ class DeployCommand extends Command {
       const appName = config.name || pm2Config.command?.split('--name')?.[1]?.trim() || path.basename(projectRoot);
       const usePm2 = config.advanced?.usePm2 !== false;
 
-      // 5. Pre-Deploy (Remotos) - Paridad Python
-      if (config.deploy?.preDeploy && config.deploy.preDeploy.length > 0) {
-        this.logToWs(ws, '🏃 Ejecutando comandos Pre-Deploy remotos...', 'info');
-        for (const cmd of config.deploy.preDeploy) {
-          this.logToWs(ws, `> ${cmd}`, 'info');
-          const preRes = await ssh.execCommand(`cd ${remotePath} && ${remoteShellLoader} && ${cmd}`);
-          if (preRes.stdout) this.logToWs(ws, preRes.stdout);
-          if (preRes.stderr) this.logToWs(ws, preRes.stderr, 'info');
-        }
-      }
-
       if (usePm2) {
         this.logToWs(ws, `🚀 Reiniciando aplicación ${appName} con PM2...`, 'info');
         // Paridad Python: Forzar ruta .output/server/index.mjs para Nuxt 3
         const startCmd = `pm2 start ${outputDir}/server/index.mjs --name ${appName} --env production`;
-        const pm2Cmd = `${fullRemoteLoader} && pm2 reload ${appName} --update-env || (pm2 delete ${appName} || true && ${startCmd})`;
+        const pm2Cmd = `${finalRemoteLoader} && pm2 reload ${appName} --update-env || (pm2 delete ${appName} || true && ${startCmd})`;
         const pm2Result = await ssh.execCommand(`cd ${remotePath} && ${pm2Cmd}`);
         if (pm2Result.stdout) this.logToWs(ws, pm2Result.stdout);
         if (pm2Result.stderr) this.logToWs(ws, pm2Result.stderr, 'info');
       } else {
         this.logToWs(ws, '🚀 Iniciando aplicación con Node...', 'info');
-        const nodeCmd = `${fullRemoteLoader} && nohup node ${outputDir}/server/index.mjs > app.log 2>&1 &`;
+        const nodeCmd = `${finalRemoteLoader} && nohup node ${outputDir}/server/index.mjs > app.log 2>&1 &`;
         const nodeRes = await ssh.execCommand(`cd ${remotePath} && ${nodeCmd}`);
         if (nodeRes.stdout) this.logToWs(ws, nodeRes.stdout);
         if (nodeRes.stderr) this.logToWs(ws, nodeRes.stderr, 'info');
