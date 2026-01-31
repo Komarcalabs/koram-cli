@@ -341,7 +341,9 @@ class DeployCommand extends Command {
         const envBypass = 'export NPM_CONFIG_ENGINE_STRICT=false; export NPM_CONFIG_LEGACY_PEER_DEPS=true; export NPM_CONFIG_REGISTRY=https://registry.npmjs.org/;';
 
         // Nota: Usamos 'npm install' en lugar de 'ci' para mayor flexibilidad con dependencias Git y preparaciones complejas
-        const npmFlags = '--omit=dev --no-audit --no-progress --prefer-offline=false';
+        let npmFlags = '--omit=dev --no-audit --no-progress';
+        if (optimizeNpm) npmFlags += ' --prefer-offline';
+
         const npmCmd = `npm install ${npmFlags}`;
 
         const installResult = await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && ${envBypass} ${npmCmd}`);
@@ -355,6 +357,7 @@ class DeployCommand extends Command {
         // Paridad Python: Reconstrucción inteligente con fallbacks
         this.logToWs(ws, '🔨 Reconstruyendo módulos nativos en el servidor...', 'info');
         const rebuildCmd = `${envBypass} (npm rebuild --update-binary || npm rebuild --build-from-source || echo '⚠️ Advertencia en rebuild')`;
+        await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && ${rebuildCmd}`);
 
         await ssh.execCommand(`echo "${localHash}" > ${remotePath}/.lockhash`);
       }
