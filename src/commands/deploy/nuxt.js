@@ -1,64 +1,380 @@
 const { Command, flags } = require('@oclif/command');
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const { selectKoramConfig, getCredentialByKey } = require('../../utils/index');
+const http = require('http');
+const express = require('express');
+const { WebSocketServer } = require('ws');
+const open = require('open');
+const { spawn, execSync } = require('child_process');
+const { NodeSSH } = require('node-ssh');
+const crypto = require('crypto');
+const chalk = require('chalk');
+const glob = require('glob');
+const detect = require('detect-port').default;
+const { getCredentialByKey } = require('../../utils/index');
 
 class DeployCommand extends Command {
   async run() {
     const { flags } = this.parse(DeployCommand);
-    const cliRootPath = path.resolve(__dirname, '../../../');
-    const venvPythonPath = path.join(cliRootPath, 'venv/bin/python3');
-    if (!fs.existsSync(venvPythonPath)) {
-      this.error('El entorno virtual de Python no se encontró. Asegúrate de haber ejecutado `npm install`.');
-      return;
-    }
-    const deployerPath = path.join(cliRootPath, 'src/python-deployer/main.py');
-    // Leer configuración del proyecto
     const projectRoot = process.cwd();
-    let configFile = {}
-    let credentials = {};
-    let rcPath = await selectKoramConfig(projectRoot, flags.env)
-    configFile = JSON.parse(
-      fs.readFileSync(rcPath)
-    );
-    credentials = await getCredentialByKey(null, configFile.server?.user, configFile.server?.host);
-    // Sobrescribir con flags
-    const host = flags.host || configFile.server.host || '';
-    const user = flags.user || configFile.server.user || '';
-    const remotePath = flags.path || configFile.deploy.path || '';
-    const appName = configFile.name || '';
-    // Ejecutar Python con variables de entorno
-    const pyProcess = spawn(venvPythonPath, [deployerPath], {
-      shell: true,
-      env: {
-        ...process.env,
-        HOST: host,
-        USER: user,
-        REMOTE_PATH: remotePath,
-        APP_NAME: appName,
-        RC_PATH: rcPath, // Pasamos la ruta del .koram-rc
-        PASSWORD: credentials.password // <- añadimos aquí
+
+    // 1. Iniciar Servidor Express para el Dashboard
+    const app = express();
+    const server = http.createServer(app);
+    const wss = new WebSocketServer({ server });
+
+    app.use(express.static(path.join(__dirname, '../../deployer-dashboard')));
+
+    let isBusy = false;
+
+    wss.on('connection', (ws) => {
+      console.log(chalk.cyan('✨ Dashboard conectado.'));
+
+      // Enviar lista de configs y archivos .env.* al conectar
+      const configs = glob.sync(path.join(projectRoot, '.koram-rc.*.json')).map(f => path.basename(f));
+      let envFiles = glob.sync(path.join(projectRoot, '.env.*')).map(f => path.basename(f));
+
+      if (envFiles.length === 0) {
+        envFiles = ['.env.production'];
       }
+
+      ws.send(JSON.stringify({
+        type: 'configs',
+        items: configs,
+        selected: configs[0],
+        envs: envFiles
+      }));
+
+      // Cargar la primera config por defecto al conectar
+      if (configs.length > 0) {
+        const firstConfigPath = path.join(projectRoot, configs[0]);
+        if (fs.existsSync(firstConfigPath)) {
+          const config = JSON.parse(fs.readFileSync(firstConfigPath, 'utf8'));
+          ws.send(JSON.stringify({ type: 'config_data', data: config }));
+        }
+      }
+
+      ws.on('message', async (message) => {
+        try {
+          const data = JSON.parse(message);
+
+          if (data.type === 'load_config') {
+            const configPath = path.join(projectRoot, data.name);
+            if (fs.existsSync(configPath)) {
+              const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+              // Intentar precargar password del sistema si no existe en el JSON
+              if (!config.server?.password_plain && config.server?.user && config.server?.host) {
+                try {
+                  const creds = await getCredentialByKey(null, config.server.user, config.server.host);
+                  if (creds && creds.password) {
+                    if (!config.server) config.server = {};
+                    config.server.password_plain = creds.password;
+                  }
+                } catch (e) {
+                  // Ignorar fallos de búsqueda automática
+                }
+              }
+
+              ws.send(JSON.stringify({ type: 'config_data', data: config }));
+            }
+          }
+
+          if (data.type === 'save_config') {
+            const configPath = path.join(projectRoot, data.name);
+            const currentConfig = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {};
+
+            const updated = {
+              ...currentConfig,
+              name: data.data.name || currentConfig.name,
+              server: { ...currentConfig.server, ...data.data.server },
+              deploy: { ...currentConfig.deploy, ...data.data.deploy },
+              env: { ...currentConfig.env, ...data.data.env },
+              buildEnv: data.data.buildEnv || currentConfig.buildEnv,
+              advanced: { ...currentConfig.advanced, ...data.data.advanced }
+            };
+
+            fs.writeFileSync(configPath, JSON.stringify(updated, null, 2));
+            this.logToWs(ws, '✅ Configuración guardada en ' + data.name, 'success');
+          }
+
+          if (data.type === 'start_deploy' && !isBusy) {
+            isBusy = true;
+            this.broadcast(wss, { type: 'status', busy: true });
+
+            try {
+              const configPath = path.join(projectRoot, data.name);
+              const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+              await this.executeDeployment(config, ws);
+            } catch (err) {
+              this.logToWs(ws, `❌ Error crítico: ${err.message}`, 'error');
+            } finally {
+              isBusy = false;
+              this.broadcast(wss, { type: 'status', busy: false });
+            }
+          }
+        } catch (e) {
+          console.error('WS Error:', e);
+        }
+      });
     });
 
-    pyProcess.stdout.on('data', (data) => process.stdout.write(data.toString()));
-    pyProcess.stderr.on('data', (data) => process.stderr.write(data.toString()));
-    pyProcess.on('close', (code) => {
-      if (code === 0) console.log('\n✅ Deploy completado con éxito.');
-      else console.log(`\n❌ Deploy finalizó con código ${code}`);
+    const PORT = await detect(3888);
+    server.listen(PORT, () => {
+      console.log(chalk.green(`\n🚀 Dashboard de Despliegue listo en http://localhost:${PORT}`));
+      open(`http://localhost:${PORT}`);
+    });
+  }
+
+  logToWs(ws, message, level = 'info') {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'log', message, level }));
+    }
+    if (level === 'error') console.error(chalk.red(message));
+    else if (level === 'success') console.log(chalk.green(message));
+    else console.log(chalk.blue(message));
+  }
+
+  broadcast(wss, data) {
+    wss.clients.forEach(client => {
+      if (client.readyState === client.OPEN) {
+        client.send(JSON.stringify(data));
+      }
+    });
+  }
+
+  async executeDeployment(config, ws) {
+    const projectRoot = process.cwd();
+    const remoteShellLoader = 'export PATH=$PATH:/usr/local/bin:/usr/bin:/bin; [ -f ~/.profile ] && . ~/.profile; [ -f ~/.bashrc ] && . ~/.bashrc; [ -f ~/.zshrc ] && . ~/.zshrc';
+
+    // Construir prefijo de exportación de variables de entorno
+    const envVars = Object.entries(config.env || {}).map(([k, v]) => `export ${k}="${v}"`).join('; ');
+    const fullRemoteLoader = `${remoteShellLoader}; ${envVars}`;
+
+    try {
+      // 0. Preparar Build Local
+      let fullBuildCmd = "";
+
+      const buildEnv = config.buildEnv || "production";
+      const envName = buildEnv.split(".").pop() || "production";
+
+      const isLocalInstall = config.advanced?.localNpmInstall === true;
+      if (isLocalInstall) {
+        this.logToWs(ws, "📦 Ejecutando npm install local...", "info");
+        fullBuildCmd += "npm install && ";
+      }
+
+      fullBuildCmd += `NODE_ENV=${envName} npm run build`;
+
+      this.logToWs(ws, `🔨 Ejecutando construcción local (${envName})...`, "info");
+      await this.runCommand(fullBuildCmd, projectRoot, ws);
+
+      const outputDir = fs.existsSync('.output') ? '.output' : '.nuxt';
+      if (!fs.existsSync(outputDir)) {
+        throw new Error(`No se encontró el directorio de salida (${outputDir}). ¿Ejecutaste el build correctamente?`);
+      }
+
+      // Paridad Python: Limpiar módulos nativos del build local (incompatibles con Linux)
+      const bundledModules = path.join(projectRoot, outputDir, 'server', 'node_modules');
+      if (fs.existsSync(bundledModules)) {
+        this.logToWs(ws, '🧹 Limpiando módulos nativos locales de .output...', 'info');
+        execSync(`rm -rf "${bundledModules}"`, { cwd: projectRoot });
+      }
+
+      this.logToWs(ws, '📦 Preparando paquete de despliegue...', 'info');
+      const tarFile = `deploy-${Date.now()}.tar.gz`;
+      try {
+        execSync(`tar -czf ${tarFile} ${outputDir} package.json package-lock.json`, { cwd: projectRoot });
+      } catch (e) {
+        throw new Error('Error al crear el archivo tar.gz. Asegúrate de tener "tar" instalado.');
+      }
+
+      // 2. SSH Connection
+      this.logToWs(ws, `🔌 Conectando a ${config.server.host}...`, 'info');
+      const ssh = new NodeSSH();
+      const sshConfig = {
+        host: config.server.host,
+        port: parseInt(config.server.port) || 22,
+        username: config.server.user,
+        tryKeyboard: true,
+      };
+
+      if (config.server.password_plain || config.server.password) {
+        sshConfig.password = config.server.password_plain || config.server.password;
+      }
+
+      if (process.env.SSH_AUTH_SOCK) {
+        sshConfig.agent = process.env.SSH_AUTH_SOCK;
+      }
+
+      await ssh.connect(sshConfig);
+
+      // 3. Upload & Extract
+      const remotePath = config.deploy.path;
+      this.logToWs(ws, `⬆️ Subiendo archivos a ${remotePath}...`, 'info');
+      await ssh.execCommand(`mkdir -p ${remotePath}`);
+      await ssh.putFile(path.join(projectRoot, tarFile), path.join(remotePath, tarFile));
+
+      this.logToWs(ws, '📂 Extrayendo archivos en el servidor...', 'info');
+      // Paridad Python: Eliminar .output y .nuxt previos para evitar basura de binarios nativos (Mac vs Linux)
+      const extractResult = await ssh.execCommand(`cd ${remotePath} && rm -rf ${outputDir} .nuxt && tar -xzf ${tarFile} && rm ${tarFile}`);
+      if (extractResult.stdout) this.logToWs(ws, extractResult.stdout);
+      if (extractResult.stderr) this.logToWs(ws, extractResult.stderr, 'info');
+
+      fs.unlinkSync(path.join(projectRoot, tarFile)); // Borrar local
+
+      // 4. Smart Install (Hash check)
+      this.logToWs(ws, '🧠 Verificando dependencias (Smart Install)...', 'info');
+      const lockPath = path.join(projectRoot, 'package-lock.json');
+      const localHash = crypto.createHash('sha256').update(fs.readFileSync(lockPath)).digest('hex');
+
+      const remoteHashResult = await ssh.execCommand(`cat ${remotePath}/.lockhash`);
+      const remoteHash = remoteHashResult.stdout.trim();
+
+      if (localHash === remoteHash) {
+        this.logToWs(ws, '✅ Dependencias idénticas. Saltando npm install.', 'success');
+      } else {
+        this.logToWs(ws, '🔄 Cambios detectados. Instalando módulos en el servidor...', 'info');
+        const optimizeNpm = config.advanced?.optimizeNpm !== false;
+        const npmCmd = optimizeNpm
+          ? 'npm install --omit=dev --no-audit --no-progress --prefer-offline'
+          : 'npm install --omit=dev';
+
+        const installResult = await ssh.execCommand(`cd ${remotePath} && ${npmCmd}`);
+        if (installResult.code !== 0) {
+          this.logToWs(ws, `⚠️ Advertencia en npm install: ${installResult.stderr}`, 'error');
+        }
+
+        // Paridad Python: Reconstruir módulos nativos para la arquitectura del servidor (Fuerza build desde fuente)
+        this.logToWs(ws, '🔨 Reconstruyendo módulos nativos en el servidor desde fuente...', 'info');
+        await ssh.execCommand(`cd ${remotePath} && ${fullRemoteLoader} && npm rebuild --update-binary --build-from-source`);
+
+        await ssh.execCommand(`echo "${localHash}" > ${remotePath}/.lockhash`);
+      }
+
+      // 5. Entorno y Reinicio
+      this.logToWs(ws, '📝 Configurando variables de entorno...', 'info');
+      let envContent = `PORT=${config.env.PORT || 3000}\n`;
+      for (const [key, val] of Object.entries(config.env || {})) {
+        if (key !== 'PORT') envContent += `${key}=${val}\n`;
+      }
+      const remoteEnvPath = path.join(remotePath, '.env');
+      await ssh.execCommand(`echo "${envContent}" > ${remoteEnvPath}`);
+
+      const pm2Config = config.processes?.app || {};
+      const appName = config.name || pm2Config.command?.split('--name')?.[1]?.trim() || path.basename(projectRoot);
+      const usePm2 = config.advanced?.usePm2 !== false;
+
+      // 5. Pre-Deploy (Remotos) - Paridad Python
+      if (config.deploy?.preDeploy && config.deploy.preDeploy.length > 0) {
+        this.logToWs(ws, '🏃 Ejecutando comandos Pre-Deploy remotos...', 'info');
+        for (const cmd of config.deploy.preDeploy) {
+          this.logToWs(ws, `> ${cmd}`, 'info');
+          const preRes = await ssh.execCommand(`cd ${remotePath} && ${remoteShellLoader} && ${cmd}`);
+          if (preRes.stdout) this.logToWs(ws, preRes.stdout);
+          if (preRes.stderr) this.logToWs(ws, preRes.stderr, 'info');
+        }
+      }
+
+      if (usePm2) {
+        this.logToWs(ws, `🚀 Reiniciando aplicación ${appName} con PM2...`, 'info');
+        // Paridad Python: Forzar ruta .output/server/index.mjs para Nuxt 3
+        const startCmd = `pm2 start ${outputDir}/server/index.mjs --name ${appName} --env production`;
+        const pm2Cmd = `${fullRemoteLoader} && pm2 reload ${appName} --update-env || (pm2 delete ${appName} || true && ${startCmd})`;
+        const pm2Result = await ssh.execCommand(`cd ${remotePath} && ${pm2Cmd}`);
+        if (pm2Result.stdout) this.logToWs(ws, pm2Result.stdout);
+        if (pm2Result.stderr) this.logToWs(ws, pm2Result.stderr, 'info');
+      } else {
+        this.logToWs(ws, '🚀 Iniciando aplicación con Node...', 'info');
+        const nodeCmd = `${fullRemoteLoader} && nohup node ${outputDir}/server/index.mjs > app.log 2>&1 &`;
+        const nodeRes = await ssh.execCommand(`cd ${remotePath} && ${nodeCmd}`);
+        if (nodeRes.stdout) this.logToWs(ws, nodeRes.stdout);
+        if (nodeRes.stderr) this.logToWs(ws, nodeRes.stderr, 'info');
+      }
+
+      this.logToWs(ws, '✅ ¡Despliegue completado con éxito!', 'success');
+
+      // Calcular y enviar URL final
+      const deployedUrl = `http://${config.server.host}:${config.env.PORT || 3000}`;
+      this.logToWs(ws, `🔗 URL de la aplicación: ${deployedUrl}`, 'success');
+
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'deploy_success', url: deployedUrl }));
+      }
+
+      // 6. Post-Deploy Commands (Remotos)
+      if (config.deploy?.postDeploy && config.deploy.postDeploy.length > 0) {
+        this.logToWs(ws, '🏃 Ejecutando comandos Post-Deploy en el servidor...', 'info');
+        for (const cmd of config.deploy.postDeploy) {
+          this.logToWs(ws, `> ${cmd}`, 'info');
+          const postResult = await ssh.execCommand(`cd ${remotePath} && ${fullRemoteLoader} && ${cmd}`);
+          if (postResult.stdout) this.logToWs(ws, postResult.stdout);
+          if (postResult.stderr) this.logToWs(ws, postResult.stderr, 'info');
+        }
+      }
+
+      ssh.dispose();
+
+    } catch (err) {
+      this.logToWs(ws, `❌ Error en el proceso: ${err.message}`, 'error');
+      throw err;
+    }
+  }
+
+  runCommand(command, cwd, ws) {
+    return new Promise((resolve, reject) => {
+      const isUnix = process.platform !== 'win32';
+      let spawnCmd = command;
+      let spawnArgs = [];
+      let spawnOpts = { cwd, shell: true };
+
+      if (isUnix) {
+        const shell = process.env.SHELL || '/bin/zsh';
+        spawnCmd = shell;
+
+        // Cargador hiper-robusto de perfiles y NVM
+        const loaders = [
+          '[ -f ~/.zshrc ] && . ~/.zshrc',
+          '[ -f ~/.bashrc ] && . ~/.bashrc',
+          '[ -f ~/.profile ] && . ~/.profile',
+          '[ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"',
+          '[ -s "/usr/local/opt/nvm/nvm.sh" ] && . "/usr/local/opt/nvm/nvm.sh"',
+          '[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && . "/opt/homebrew/opt/nvm/nvm.sh"'
+        ].join('; ');
+
+        // Asegurar que node_modules/.bin esté en el PATH para el comando actual
+        const localBin = 'export PATH="./node_modules/.bin:$PATH"';
+
+        const fullCmd = `${loaders}; ${localBin}; ${command}`;
+        spawnArgs = ['-c', fullCmd]; // Eliminamos -l para evitar resets de PATH por el sistema
+        spawnOpts = { cwd, env: process.env };
+      }
+
+      const p = spawn(spawnCmd, spawnArgs, spawnOpts);
+
+      p.stdout.on('data', (data) => {
+        const line = data.toString().trim();
+        if (line) this.logToWs(ws, line);
+      });
+      p.stderr.on('data', (data) => {
+        const line = data.toString().trim();
+        if (line) this.logToWs(ws, line, 'info');
+      });
+
+      p.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`Comando '${command}' falló con código ${code}`));
+      });
     });
   }
 }
 
-DeployCommand.description = `Lanza el deployer Python para Nuxt
-Este comando ejecuta el flujo de construcción, empaquetado, subida y reinicio de la app en el servidor.
+DeployCommand.description = `Lanza el Dashboard de despliegue interactivo para Nuxt.
+Optimizado para servidores de bajos recursos con Smart Install.
 `;
 
 DeployCommand.flags = {
-  host: flags.string({ char: 'h', description: 'Host del servidor' }),
-  user: flags.string({ char: 'u', description: 'Usuario SSH' }),
-  path: flags.string({ char: 'p', description: 'Ruta remota de la app' }),
+  env: flags.string({ char: 'e', description: 'Ambiente específico' }),
 };
 
 module.exports = DeployCommand;
