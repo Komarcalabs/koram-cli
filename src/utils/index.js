@@ -58,7 +58,7 @@ module.exports.getCredentialByKey = async function (alias, username, hostname) {
 
     let keys;
     if (alias) {
-        keys = Object.keys(allCreds).filter(k => k.startsWith(alias + ':'));
+        keys = Object.keys(allCreds).filter(k => k.startsWith(alias + ':') || allCreds[k].host === alias);
     } else if (username && hostname) {
         keys = Object.keys(allCreds).filter(k => k.endsWith(':' + username) && allCreds[k].host === hostname);
     } else {

@@ -23,6 +23,8 @@ class DeployCommand extends Command {
     try {
       const rcPath = await selectKoramConfig(projectRoot, flags.env);
       initialRC = path.basename(rcPath);
+
+      console.log(chalk.cyan('✨ Configuración inicial seleccionada:'), initialRC);
     } catch (e) {
       // Si falla o no hay archivos, el Dashboard manejará el estado vacío
     }
@@ -68,17 +70,6 @@ class DeployCommand extends Command {
           if (flags.user) { if (!config.server) config.server = {}; config.server.user = flags.user; }
           if (flags.path) { if (!config.deploy) config.deploy = {}; config.deploy.path = flags.path; }
 
-          // Intentar precargar password si tenemos host/user
-          if (!config.server?.password_plain && config.server?.user && config.server?.host) {
-            try {
-              const creds = await getCredentialByKey(null, config.server.user, config.server.host);
-              if (creds && creds.password) {
-                if (!config.server) config.server = {};
-                config.server.password_plain = creds.password;
-              }
-            } catch (e) { }
-          }
-
           ws.send(JSON.stringify({ type: 'config_data', data: config }));
         }
       }
@@ -92,19 +83,6 @@ class DeployCommand extends Command {
             if (fs.existsSync(configPath)) {
               const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
-              // Intentar precargar password del sistema si no existe en el JSON
-              if (!config.server?.password_plain && config.server?.user && config.server?.host) {
-                try {
-                  const creds = await getCredentialByKey(null, config.server.user, config.server.host);
-                  if (creds && creds.password) {
-                    if (!config.server) config.server = {};
-                    config.server.password_plain = creds.password;
-                  }
-                } catch (e) {
-                  // Ignorar fallos de búsqueda automática
-                }
-              }
-
               ws.send(JSON.stringify({ type: 'config_data', data: config }));
             }
           }
@@ -113,10 +91,15 @@ class DeployCommand extends Command {
             const configPath = path.join(projectRoot, data.name);
             const currentConfig = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {};
 
+            // Limpiamos contraseñas para no guardarlas en el JSON (Paridad Usuario)
+            const serverData = { ...data.data.server };
+            delete serverData.password;
+            delete serverData.password_plain;
+
             const updated = {
               ...currentConfig,
               name: data.data.name || currentConfig.name,
-              server: { ...currentConfig.server, ...data.data.server },
+              server: serverData,
               deploy: { ...currentConfig.deploy, ...data.data.deploy },
               env: { ...currentConfig.env, ...data.data.env },
               buildEnv: data.data.buildEnv || currentConfig.buildEnv,
@@ -187,14 +170,24 @@ class DeployCommand extends Command {
     const sshPromise = (async () => {
       try {
         const ssh = new NodeSSH();
+
+        // Recuperar password directamente de la bóveda de Koram (Seguridad Máxima)
+        let pass = config.server.password_plain || config.server.password;
+        if (!pass) {
+          try {
+            const creds = await getCredentialByKey(null, config.server.user, config.server.host);
+            if (creds && creds.password) pass = creds.password;
+          } catch (e) { }
+        }
+
         const sshConfig = {
           host: config.server.host,
           port: parseInt(config.server.port) || 22,
           username: config.server.user,
           tryKeyboard: true,
         };
-        if (config.server.password_plain || config.server.password) {
-          sshConfig.password = config.server.password_plain || config.server.password;
+        if (pass) {
+          sshConfig.password = pass;
         }
         if (process.env.SSH_AUTH_SOCK) {
           sshConfig.agent = process.env.SSH_AUTH_SOCK;
@@ -241,27 +234,72 @@ class DeployCommand extends Command {
       const ssh = await sshPromise;
       this.logToWs(ws, '✅ Conexión SSH establecida paralelamente.', 'success');
 
-      this.logToWs(ws, '�📦 Preparando paquete de despliegue...', 'info');
-      const tarFile = `deploy-${Date.now()}.tar.gz`;
-      try {
-        execSync(`tar -czf ${tarFile} ${outputDir} package.json package-lock.json`, { cwd: projectRoot });
-      } catch (e) {
-        throw new Error('Error al crear el archivo tar.gz. Asegúrate de tener "tar" instalado.');
+      // --- ESTRATEGIA DE TRANSFERENCIA ULTRA-RÁPIDA (Paridad Python + Optimización) ---
+      const remotePath = config.deploy.path;
+      const hasRsync = execSync('which rsync || true').toString().trim() !== '';
+      const hasSshPass = execSync('which sshpass || true').toString().trim() !== '';
+
+      // Solo usamos Rsync si está disponible. Si hay contraseña, requerimos sshpass.
+      let useRsync = hasRsync;
+      const hasPassword = !!(config.server.password_plain || config.server.password);
+      if (hasPassword && !hasSshPass) {
+        useRsync = false;
+        this.logToWs(ws, '⚠️ Rsync requiere "sshpass" para autenticación por password. Usando Tar (Legacy).', 'info');
       }
 
-      // 3. Upload & Extract
-      const remotePath = config.deploy.path;
-      this.logToWs(ws, `⬆️ Subiendo archivos a ${remotePath}...`, 'info');
-      await ssh.execCommand(`mkdir -p ${remotePath}`);
-      await ssh.putFile(path.join(projectRoot, tarFile), path.join(remotePath, tarFile));
+      if (useRsync) {
+        this.logToWs(ws, '⚡ Iniciando transferencia Delta (Rsync)...', 'info');
+        const rsyncTarget = `${config.server.user}@${config.server.host}:${remotePath}/`;
 
-      this.logToWs(ws, '📂 Extrayendo archivos en el servidor...', 'info');
-      // Paridad Python: Eliminar .output y .nuxt previos para evitar basura de binarios nativos (Mac vs Linux)
-      const extractResult = await ssh.execCommand(`cd ${remotePath} && rm -rf ${outputDir} .nuxt && tar -xzf ${tarFile} && rm ${tarFile}`);
-      if (extractResult.stdout) this.logToWs(ws, extractResult.stdout);
-      if (extractResult.stderr) this.logToWs(ws, extractResult.stderr, 'info');
+        // 1. Asegurar carpeta remota
+        await ssh.execCommand(`mkdir -p ${remotePath}`);
 
-      fs.unlinkSync(path.join(projectRoot, tarFile)); // Borrar local
+        // 2. Ejecutar Rsync Delta Sync (Solo sube lo que cambió)
+        // Optimizamos: -a (archive), -z (compress), --delete (limpia lo viejo), --no-perms (evita liadas de linux)
+        let rsyncBase = `rsync -az --delete --no-perms --no-owner --no-group -e "ssh -p ${config.server.port || 22} -o StrictHostKeyChecking=no"`;
+
+        if (hasPassword) {
+          rsyncBase = `sshpass -p "${config.server.password_plain || config.server.password}" ${rsyncBase}`;
+        }
+
+        const filesToSync = [outputDir, 'package.json', 'package-lock.json', 'public'].filter(f => fs.existsSync(f));
+
+        for (const file of filesToSync) {
+          this.logToWs(ws, `⬆️ Sincronizando ${file}...`, 'info');
+          try {
+            // Si es un directorio, añadimos / al final para que rsync sincronice el contenido
+            const src = fs.statSync(file).isDirectory() ? `${file}/` : file;
+            const dest = fs.statSync(file).isDirectory() ? `${rsyncTarget}${file}/` : rsyncTarget;
+            if (fs.statSync(file).isDirectory()) await ssh.execCommand(`mkdir -p ${remotePath}/${file}`);
+
+            execSync(`${rsyncBase} ${src} ${dest}`, { cwd: projectRoot });
+          } catch (e) {
+            this.logToWs(ws, `⚠️ Fallo rsync en ${file}: ${e.message}`, 'error');
+          }
+        }
+      } else {
+        // --- FALLBACK TAR (OPTIMIZADO) ---
+        this.logToWs(ws, '📦 Preparando paquete de despliegue (Compresión Rápida)...', 'info');
+        const tarFile = `deploy-${Date.now()}.tar.gz`;
+        try {
+          // Usamos gzip -1 para máxima velocidad de compresión (sacrificando un poco de tamaño)
+          execSync(`tar -cf - ${outputDir} package.json package-lock.json | gzip -1 > ${tarFile}`, { cwd: projectRoot, shell: true });
+        } catch (e) {
+          throw new Error('Error al crear el archivo comprimido. Asegúrate de tener "tar" y "gzip" instalados.');
+        }
+
+        this.logToWs(ws, `⬆️ Subiendo archivos a ${remotePath}...`, 'info');
+        await ssh.execCommand(`mkdir -p ${remotePath}`);
+        await ssh.putFile(path.join(projectRoot, tarFile), path.join(remotePath, tarFile));
+
+        this.logToWs(ws, '📂 Extrayendo archivos en el servidor...', 'info');
+        // Solo limpiamos si usamos Tar, Rsync ya lo hace con --delete
+        const extractResult = await ssh.execCommand(`cd ${remotePath} && rm -rf ${outputDir} .nuxt && tar -xzf ${tarFile} && rm ${tarFile}`);
+        if (extractResult.stdout) this.logToWs(ws, extractResult.stdout);
+        if (extractResult.stderr) this.logToWs(ws, extractResult.stderr, 'info');
+
+        fs.unlinkSync(path.join(projectRoot, tarFile)); // Borrar local
+      }
 
       // 4. Smart Install (Hash check)
       this.logToWs(ws, '🧠 Verificando dependencias (Smart Install)...', 'info');
