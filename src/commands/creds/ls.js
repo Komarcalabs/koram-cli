@@ -44,12 +44,18 @@ class CredentialListCommand extends Command {
       let origen = chalk.gray('keytar');
       let password = null;
 
-      // Primero buscar en keytar si está disponible
+      // Intentar obtener password de keytar, pero catch si falla
       if (keytar) {
-        password = await keytar.getPassword('koram', a);
+        try {
+          password = await keytar.getPassword('koram', a);
+        } catch (err) {
+          // Error de Keytar (ej: WSL sin keyring)
+          origen = chalk.yellow('fallback ⚠️');
+          password = meta.password || null;
+        }
       }
 
-      // Si no se encontró en keytar, revisar fallback
+      // Si keytar no estaba disponible o no devolvió nada, usar fallback
       if (!password && meta.password) {
         origen = chalk.yellow('fallback ⚠️');
         password = meta.password;

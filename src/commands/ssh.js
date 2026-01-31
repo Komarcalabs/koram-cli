@@ -5,21 +5,21 @@ const chalk = require('chalk');
 const { spawn } = require('child_process');
 const { selectKoramConfig, getCredentialByKey } = require('../utils/index');
 const ora = require('ora');
+const { Client } = require('ssh2');
 
 class SshCommand extends Command {
   async run() {
     try {
-      let { args, flags } = this.parse(SshCommand);
-
+      const { args, flags } = this.parse(SshCommand);
       const projectRoot = process.cwd();
 
-      let configFile = {};
       const alias = args.alias;
       if (!alias) {
         this.log(chalk.red('❌ Debes indicar un alias de servidor'));
         return;
       }
 
+      let configFile = {};
       let credentials = {};
       if (alias === '.') {
         configFile = JSON.parse(
@@ -44,33 +44,77 @@ class SshCommand extends Command {
 
       const spinner = ora(`Iniciando conexión SSH a ${user}@${host}...`).start();
 
-      let sshArgs = [
+      // 👉 Keepalive args para evitar que muera la sesión
+      const sshArgs = [
         '-o', 'StrictHostKeyChecking=no',
+        '-o', 'ServerAliveInterval=60',
+        '-o', 'ServerAliveCountMax=3',
         `${user}@${host}`
       ];
-
-      if (useSSHKey && sshKeyPath) {
-        sshArgs.unshift('-i', sshKeyPath);
-      }
+      if (useSSHKey && sshKeyPath) sshArgs.unshift('-i', sshKeyPath);
 
       spinner.stop();
       this.log(chalk.magenta(`🚀 Conectando a ${user}@${host}...\n`));
 
-      let sshProcess;
-
-      // ---- Si hay password, usamos sshpass para evitar prompt ----
       if (password && !useSSHKey) {
-        sshProcess = spawn('sshpass', ['-p', password, 'ssh', ...sshArgs], { stdio: 'inherit' });
+        // Intentar sshpass primero
+        try {
+          const sshProcess = spawn('sshpass', ['-p', password, 'ssh', ...sshArgs], { stdio: 'inherit' });
+          sshProcess.on('error', (err) => {
+            if (err.code === 'ENOENT') {
+              this.log(chalk.yellow('⚠️  sshpass no está instalado, usando fallback ssh2...'));
+              this.connectWithSsh2({ user, host, password });
+            } else {
+              this.log(chalk.red(`❌ Error SSH: ${err.message}`));
+            }
+          });
+          sshProcess.on('exit', (code) => this.log(chalk.gray(`\n🔌 Conexión cerrada (sshpass, código ${code})`)));
+        } catch {
+          this.log(chalk.yellow('⚠️  sshpass no está disponible, usando fallback ssh2...'));
+          this.connectWithSsh2({ user, host, password });
+        }
       } else {
-        sshProcess = spawn('ssh', sshArgs, { stdio: 'inherit' });
+        // SSH normal o con llave
+        const sshProcess = spawn('ssh', sshArgs, { stdio: 'inherit' });
+        sshProcess.on('exit', (code) => this.log(chalk.gray(`\n🔌 Conexión cerrada (ssh, código ${code})`)));
       }
 
-      sshProcess.on('exit', (code) => {
-        this.log(chalk.gray(`\n🔌 Conexión cerrada (código ${code})`));
-      });
     } catch (error) {
       this.log(chalk.red(`❌ ${error.message}`));
     }
+  }
+
+  connectWithSsh2({ user, host, password }) {
+    const conn = new Client();
+    conn.on('ready', () => {
+      console.log(chalk.green('✅ Conectado con ssh2 (fallback interactivo)\n'));
+
+      // 👉 Activar keepalive en ssh2
+      conn.keepaliveInterval = 60000; // cada 60s
+      conn.keepaliveCountMax = 3;
+
+      conn.shell({ term: 'xterm-color', cols: process.stdout.columns || 80, rows: process.stdout.rows || 24 }, (err, stream) => {
+        if (err) {
+          console.error(chalk.red('❌ Error al iniciar shell:'), err.message);
+          conn.end();
+          return;
+        }
+
+        // Habilitar entrada cruda para interactividad
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+        process.stdin.pipe(stream);
+        stream.pipe(process.stdout);
+        stream.stderr.pipe(process.stderr);
+
+        stream.on('close', () => {
+          process.stdin.setRawMode(false);
+          process.stdin.pause();
+          console.log(chalk.gray('\n🔌 Conexión cerrada (ssh2 fallback)'));
+          conn.end();
+        });
+      });
+    }).connect({ host, port: 22, username: user, password });
   }
 }
 

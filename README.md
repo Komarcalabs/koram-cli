@@ -1,8 +1,8 @@
 # Koram
 
-## *El Toolkit Komarquino*
+## _El Toolkit Komarquino_
 
-*"La herramienta sagrada del buen desarrollador"*
+_"La herramienta sagrada del buen desarrollador"_
 
 ---
 
@@ -36,6 +36,9 @@ Koram se instala globalmente mediante **npm**:
 npm i -g koram
 ```
 
+> [!TIP]
+> **Koram Smart Lite**: La instalación es rápida y ligera. El entorno de Python (necesario para algunos despliegues Nuxt/SPA) se omitirá si no está disponible. Si luego intentas usar un comando de deploy, Koram te preguntará si deseas configurarlo en ese momento de forma interactiva.
+
 **Uso**:
 
 ```
@@ -50,22 +53,26 @@ $ koram [COMMAND]
 | ------------ | --------------------------------------------------------------------------------------- |
 | **deploy**   | Inicializa un archivo `.koram-rc` en tu proyecto, marcando el inicio de la creación.    |
 | **projects** | Lista todos los proyectos Koram en un directorio, revelando tu legado de desarrollador. |
+| **monitor**  | Vigilancia constante de tus VPS y procesos PM2, el ojo que todo lo ve.                  |
 
 ---
 
 ## Comandos Místicos
 
-| Comando             | Descripción                                                                                                                                    |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| **help**            | Muestra la guía de sabiduría de Koram.                                                                                                         |
-| **login**           | Loguéate como un verdadero Wen Komarquino.                                                                                                     |
-| **deploy****:init** | Inicializa el koram en tu proyecto.                                                                                                            |
-| **deploy****:nuxt** | Invoca el deployer Python para proyectos Nuxt.                                                                                                 |
-| **deploy****:spa**  | Invoca el deployer Python para SPA.                                                                                                            |
-| **ui**              | Abre nuestro Libro Sagrado en tu navegador y contempla el poder del toolkit.                                                                   |
-| **doctor**          | Realiza un chequeo completo del proyecto Node.js: Node, NPM, dependencias, vulnerabilidades y archivos sagrados. Sugiere rituales de sanación. |
-| **clean**           | Purifica tu proyecto Node.js: elimina node\_modules, dist/build, cache de npm y logs temporales. Interactivo o automático con `-y`.            |
-| **serve**           | Sirve tu proyecto Node.js o carpeta estática con live reload y ritual de protección. Opciones de puerto (`-p`) y ejecución automática (`-y`).  |
+| Comando                    | Descripción                                                                                                                                    |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **help**                   | Muestra la guía de sabiduría de Koram.                                                                                                         |
+| **login**                  | Loguéate como un verdadero Wen Komarquino.                                                                                                     |
+| **deploy\*\***:init\*\*    | Inicializa el koram en tu proyecto.                                                                                                            |
+| **deploy\*\***:nuxt\*\*    | Invoca el deployer Python para proyectos Nuxt.                                                                                                 |
+| **deploy\*\***:spa\*\*     | Invoca el deployer Python para SPA.                                                                                                            |
+| **ui**                     | Abre nuestro Libro Sagrado en tu navegador y contempla el poder del toolkit.                                                                   |
+| **doctor**                 | Realiza un chequeo completo del proyecto Node.js: Node, NPM, dependencias, vulnerabilidades y archivos sagrados. Sugiere rituales de sanación. |
+| **clean**                  | Purifica tu proyecto Node.js: elimina node_modules, dist/build, cache de npm y logs temporales. Interactivo o automático con `-y`.             |
+| **serve**                  | Sirve tu proyecto Node.js o carpeta estática con live reload y ritual de protección. Opciones de puerto (`-p`) y ejecución automática (`-y`).  |
+| **monitor\*\***:server\*\* | Inicia el Gran Ojo, el servidor central que recibe las visiones de todos tus agentes.                                                          |
+| **monitor\*\***:agent\*\*  | Despliega un centinela en tu VPS para informar constantemente sobre la salud del sistema y PM2.                                                |
+| **monitor\*\***:setup\*\*  | Comandante de flota: despliega automáticamente el Servidor o el Agente en un remoto usando SSH.                                                |
 
 ---
 
@@ -128,15 +135,120 @@ koram deploy bb_server --extra "--update-env"
 - Muestra logs en tiempo real.
 - Compatible con deploy por contraseña o SSH key.
 
+---
 
+## Koram Monitor (El Ojo que todo lo ve)
+
+`koram monitor` te permite centralizar la vigilancia de múltiples VPS en un solo Dashboard místico.
+
+### Arquitectura Sagrada
+
+- **El Gran Ojo (Servidor Central)**: Actúa como el **Hub**. Se instala solo **UNA VEZ** en un VPS que servirá como tu central de mando.
+- **El Centinela (Agente)**: Actúa como el **Trabajador**. Se instala en **CADA VPS** que quieras vigilar. Los agentes envían ráfagas de datos al Servidor Central.
+
+---
+
+### Despliegue de Monitoreo Automático (Recomendado)
+
+Si ya tienes credenciales guardadas en Koram (mira `koram creds:add`), puedes instalar tanto el **Servidor Central** como los **Agentes** en tus VPS con un solo comando:
+
+```bash
+koram monitor:setup mi-vps-alias
+```
+
+Este comando es interactivo y te permitirá:
+
+1. Elegir entre instalar un **Agente** o el **Servidor Central**.
+2. Configurar los parámetros (URL, puertos, keys, auth) de forma sencilla.
+3. Se encargará de:
+   - Conectarse por SSH.
+   - Verificar **Node.js >= 20**.
+   - Instalar/Actualizar **Koram** globalmente.
+   - Configurar e iniciar el servicio en **PM2** de forma persistente.
+
+---
+
+### Instalación Manual (Paso a Paso)
+
+Si prefieres el camino largo o quieres configurar detalles específicos:
+
+### 1. El Gran Ojo (Servidor Central)
+
+Inicia el servidor que recibirá los reportes de todos tus centinelas.
+
+```bash
+koram monitor:server --port 3000 --key <tu_secret_key>
+```
+
+- **Dashboard**: Disponible en `http://localhost:3000/`. Permanecerá público a menos que se use el flag `--auth`.
+- **Seguridad**: Los agentes **siempre** requieren la clave para reportar. El Dashboard puede protegerse y personalizarse con:
+  ```bash
+  koram monitor:server --port 3000 --key <tu_secret_key> --auth --user admin --pass secreto123
+  ```
+  _(Si se activa `--auth`, usa las credenciales definidas o los valores por defecto: Usuario: `koram` / Contraseña: `<la_key_que_definiste_en_-k>`)\_.
+
+### 2. El Centinela (Agente de Monitoreo)
+
+Despliega el agente en cada uno de tus VPS para que informe su estado.
+
+```bash
+koram monitor:agent --url http://tu-servidor-central.com:3000 --key <tu_secret_key> --name <nombre_vps>
+```
+
+#### Parámetros del Centinela:
+
+| Flag             | Descripción                                                |
+| ---------------- | ---------------------------------------------------------- |
+| `-u, --url`      | La URL donde reside el Gran Ojo.                           |
+| `-k, --key`      | La llave sagrada para autenticarse.                        |
+| `-n, --name`     | Nombre del VPS (opcional, usa el hostname por defecto).    |
+| `-i, --interval` | Frecuencia de los informes en segundos. Por defecto: `60`. |
+
+---
+
+### Flags del Servidor (El Gran Ojo):
+
+| Flag         | Descripción                                                          |
+| ------------ | -------------------------------------------------------------------- |
+| `-p, --port` | Puerto donde escuchará el servidor. Por defecto: `3000`.             |
+| `-k, --key`  | La llave sagrada que deben usar los agentes para reportar.           |
+| `-a, --auth` | Si se incluye, el Dashboard requerirá login (Basic Auth).            |
+| `--user`     | Usuario personalizado para el Dashboard (por defecto: `koram`).      |
+| `--pass`     | Contraseña personalizada para el Dashboard (por defecto: `API_KEY`). |
+
+---
+
+## Ejecución en Segundo Plano (Background)
+
+Para que el Monitor sea eterno, puedes usar **PM2** para correr tanto el servidor como los agentes:
+
+### 1. Correr el Servidor en el Central
+
+```bash
+pm2 start "koram monitor:server --port 3000 --key <clave> --auth" --name koram-server
+```
+
+### 2. Correr el Agente en cada VPS
+
+```bash
+pm2 start "koram monitor:agent --url http://monitor.tu-dominio.com --key <clave> --name VPS-1" --name koram-agent
+```
+
+### 3. Guardar estado
+
+```bash
+pm2 save
+```
+
+---
 
 ## El Legado Komarquino
 
-Koram es la llave que conecta el conocimiento de los antiguos con la tecnología moderna.\
+Koram es la llave que conecta el conocimiento de los antiguos con la tecnología moderna.
 Solo los Komarquinos que lo dominen pueden desplegar proyectos con la precisión de un ritual ancestral.
 
 ---
 
 ## Komarca Labs
 
-*"Forjando herramientas sagradas para desarrolladores legendarios"*
+_"Forjando herramientas sagradas para desarrolladores legendarios"_

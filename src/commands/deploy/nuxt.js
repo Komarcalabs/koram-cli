@@ -11,12 +11,21 @@ const crypto = require('crypto');
 const chalk = require('chalk');
 const glob = require('glob');
 const detect = require('detect-port').default;
-const { getCredentialByKey } = require('../../utils/index');
+const { getCredentialByKey, selectKoramConfig } = require('../../utils/index');
 
 class DeployCommand extends Command {
   async run() {
     const { flags } = this.parse(DeployCommand);
     const projectRoot = process.cwd();
+
+    // Determinar config inicial usando la util estable de Koram
+    let initialRC = null;
+    try {
+      const rcPath = await selectKoramConfig(projectRoot, flags.env);
+      initialRC = path.basename(rcPath);
+    } catch (e) {
+      // Si falla o no hay archivos, el Dashboard manejará el estado vacío
+    }
 
     // 1. Iniciar Servidor Express para el Dashboard
     const app = express();
@@ -27,7 +36,7 @@ class DeployCommand extends Command {
 
     let isBusy = false;
 
-    wss.on('connection', (ws) => {
+    wss.on('connection', async (ws) => {
       console.log(chalk.cyan('✨ Dashboard conectado.'));
 
       // Enviar lista de configs y archivos .env.* al conectar
@@ -38,18 +47,38 @@ class DeployCommand extends Command {
         envFiles = ['.env.production'];
       }
 
+      // Determinar archivo seleccionado por defecto
+      let preSelected = initialRC || configs[0];
+
       ws.send(JSON.stringify({
         type: 'configs',
         items: configs,
-        selected: configs[0],
+        selected: preSelected,
         envs: envFiles
       }));
 
-      // Cargar la primera config por defecto al conectar
-      if (configs.length > 0) {
-        const firstConfigPath = path.join(projectRoot, configs[0]);
-        if (fs.existsSync(firstConfigPath)) {
-          const config = JSON.parse(fs.readFileSync(firstConfigPath, 'utf8'));
+      // Cargar configuración inicial con Overrides de Flags
+      if (preSelected) {
+        const configPath = path.join(projectRoot, preSelected);
+        if (fs.existsSync(configPath)) {
+          let config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+          // Overrides de Flags de la CLI
+          if (flags.host) { if (!config.server) config.server = {}; config.server.host = flags.host; }
+          if (flags.user) { if (!config.server) config.server = {}; config.server.user = flags.user; }
+          if (flags.path) { if (!config.deploy) config.deploy = {}; config.deploy.path = flags.path; }
+
+          // Intentar precargar password si tenemos host/user
+          if (!config.server?.password_plain && config.server?.user && config.server?.host) {
+            try {
+              const creds = await getCredentialByKey(null, config.server.user, config.server.host);
+              if (creds && creds.password) {
+                if (!config.server) config.server = {};
+                config.server.password_plain = creds.password;
+              }
+            } catch (e) { }
+          }
+
           ws.send(JSON.stringify({ type: 'config_data', data: config }));
         }
       }
@@ -127,8 +156,11 @@ class DeployCommand extends Command {
   }
 
   logToWs(ws, message, level = 'info') {
+    // Limpiar códigos ANSI para el Dashboard (Paridad Python)
+    const cleanMessage = message.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'log', message, level }));
+      ws.send(JSON.stringify({ type: 'log', message: cleanMessage, level }));
     }
     if (level === 'error') console.error(chalk.red(message));
     else if (level === 'success') console.log(chalk.green(message));
@@ -147,9 +179,32 @@ class DeployCommand extends Command {
     const projectRoot = process.cwd();
     const remoteShellLoader = 'export PATH=$PATH:/usr/local/bin:/usr/bin:/bin; [ -f ~/.profile ] && . ~/.profile; [ -f ~/.bashrc ] && . ~/.bashrc; [ -f ~/.zshrc ] && . ~/.zshrc';
 
-    // Construir prefijo de exportación de variables de entorno
     const envVars = Object.entries(config.env || {}).map(([k, v]) => `export ${k}="${v}"`).join('; ');
     const fullRemoteLoader = `${remoteShellLoader}; ${envVars}`;
+
+    // --- PARALELIZACIÓN SSH (Paridad Python) ---
+    // Iniciamos la conexión en paralelo mientras ocurre el build local
+    const sshPromise = (async () => {
+      try {
+        const ssh = new NodeSSH();
+        const sshConfig = {
+          host: config.server.host,
+          port: parseInt(config.server.port) || 22,
+          username: config.server.user,
+          tryKeyboard: true,
+        };
+        if (config.server.password_plain || config.server.password) {
+          sshConfig.password = config.server.password_plain || config.server.password;
+        }
+        if (process.env.SSH_AUTH_SOCK) {
+          sshConfig.agent = process.env.SSH_AUTH_SOCK;
+        }
+        await ssh.connect(sshConfig);
+        return ssh;
+      } catch (err) {
+        throw new Error(`Error en conexión SSH paralela: ${err.message}`);
+      }
+    })();
 
     try {
       // 0. Preparar Build Local
@@ -181,33 +236,18 @@ class DeployCommand extends Command {
         execSync(`rm -rf "${bundledModules}"`, { cwd: projectRoot });
       }
 
-      this.logToWs(ws, '📦 Preparando paquete de despliegue...', 'info');
+      // --- ESPERAR SSH ---
+      this.logToWs(ws, '� Esperando estabilización de conexión SSH...', 'info');
+      const ssh = await sshPromise;
+      this.logToWs(ws, '✅ Conexión SSH establecida paralelamente.', 'success');
+
+      this.logToWs(ws, '�📦 Preparando paquete de despliegue...', 'info');
       const tarFile = `deploy-${Date.now()}.tar.gz`;
       try {
         execSync(`tar -czf ${tarFile} ${outputDir} package.json package-lock.json`, { cwd: projectRoot });
       } catch (e) {
         throw new Error('Error al crear el archivo tar.gz. Asegúrate de tener "tar" instalado.');
       }
-
-      // 2. SSH Connection
-      this.logToWs(ws, `🔌 Conectando a ${config.server.host}...`, 'info');
-      const ssh = new NodeSSH();
-      const sshConfig = {
-        host: config.server.host,
-        port: parseInt(config.server.port) || 22,
-        username: config.server.user,
-        tryKeyboard: true,
-      };
-
-      if (config.server.password_plain || config.server.password) {
-        sshConfig.password = config.server.password_plain || config.server.password;
-      }
-
-      if (process.env.SSH_AUTH_SOCK) {
-        sshConfig.agent = process.env.SSH_AUTH_SOCK;
-      }
-
-      await ssh.connect(sshConfig);
 
       // 3. Upload & Extract
       const remotePath = config.deploy.path;
@@ -245,9 +285,10 @@ class DeployCommand extends Command {
           this.logToWs(ws, `⚠️ Advertencia en npm install: ${installResult.stderr}`, 'error');
         }
 
-        // Paridad Python: Reconstruir módulos nativos para la arquitectura del servidor (Fuerza build desde fuente)
-        this.logToWs(ws, '🔨 Reconstruyendo módulos nativos en el servidor desde fuente...', 'info');
-        await ssh.execCommand(`cd ${remotePath} && ${fullRemoteLoader} && npm rebuild --update-binary --build-from-source`);
+        // Paridad Python: Reconstrucción inteligente con fallbacks
+        this.logToWs(ws, '🔨 Reconstruyendo módulos nativos en el servidor...', 'info');
+        const rebuildCmd = `(npm rebuild --update-binary || npm rebuild --build-from-source || echo '⚠️ Advertencia en rebuild')`;
+        await ssh.execCommand(`cd ${remotePath} && ${fullRemoteLoader} && ${rebuildCmd}`);
 
         await ssh.execCommand(`echo "${localHash}" > ${remotePath}/.lockhash`);
       }
@@ -374,7 +415,10 @@ Optimizado para servidores de bajos recursos con Smart Install.
 `;
 
 DeployCommand.flags = {
-  env: flags.string({ char: 'e', description: 'Ambiente específico' }),
+  env: flags.string({ char: 'e', description: 'Ambiente específico (ej: develop, staging)' }),
+  host: flags.string({ char: 'h', description: 'Host del servidor para sobrescribir el config' }),
+  user: flags.string({ char: 'u', description: 'Usuario SSH para sobrescribir el config' }),
+  path: flags.string({ char: 'p', description: 'Ruta remota para sobrescribir el config' }),
 };
 
 module.exports = DeployCommand;
