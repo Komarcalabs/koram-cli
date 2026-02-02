@@ -239,6 +239,10 @@ class DeployCommand extends Command {
       const hasRsync = execSync('which rsync || true').toString().trim() !== '';
       const hasSshPass = execSync('which sshpass || true').toString().trim() !== '';
 
+      // Identificar archivos a desplegar (Paridad Python: public, static, ecosystem, etc.)
+      const potentialFiles = [outputDir, 'package.json', 'package-lock.json', 'public', 'static', 'ecosystem.config.js'];
+      const filesToDeploy = potentialFiles.filter(f => fs.existsSync(path.join(projectRoot, f)));
+
       // Solo usamos Rsync si está disponible. Si hay contraseña, requerimos sshpass.
       let useRsync = hasRsync;
       const hasPassword = !!(config.server.password_plain || config.server.password);
@@ -262,9 +266,7 @@ class DeployCommand extends Command {
           rsyncBase = `sshpass -p "${config.server.password_plain || config.server.password}" ${rsyncBase}`;
         }
 
-        const filesToSync = [outputDir, 'package.json', 'package-lock.json', 'public'].filter(f => fs.existsSync(f));
-
-        for (const file of filesToSync) {
+        for (const file of filesToDeploy) {
           this.logToWs(ws, `⬆️ Sincronizando ${file}...`, 'info');
           try {
             // Si es un directorio, añadimos / al final para que rsync sincronice el contenido
@@ -281,9 +283,13 @@ class DeployCommand extends Command {
         // --- FALLBACK TAR (OPTIMIZADO) ---
         this.logToWs(ws, '📦 Preparando paquete de despliegue (Compresión Rápida)...', 'info');
         const tarFile = `deploy-${Date.now()}.tar.gz`;
+
+        // Unimos los archivos a empaquetar
+        const filesString = filesToDeploy.join(' ');
+
         try {
-          // Usamos gzip -1 para máxima velocidad de compresión (sacrificando un poco de tamaño)
-          execSync(`tar -cf - ${outputDir} package.json package-lock.json | gzip -1 > ${tarFile}`, { cwd: projectRoot, shell: true });
+          // Usamos gzip -1 para máxima velocidad. --dereference para seguir symlinks (Paridad Python)
+          execSync(`tar --no-xattrs --dereference -cf - ${filesString} | gzip -1 > ${tarFile}`, { cwd: projectRoot, shell: true });
         } catch (e) {
           throw new Error('Error al crear el archivo comprimido. Asegúrate de tener "tar" y "gzip" instalados.');
         }
