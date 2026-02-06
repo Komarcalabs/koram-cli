@@ -98,8 +98,12 @@ class InfraDeployCommand extends Command {
     // 🔄 Procesos (ejemplo Deno o PM2)
     if (processes) {
       this.log('🔄 Levantando procesos...');
-      for (const [name, proc] of Object.entries(processes)) {
-        this.log(`→ ${name}: ${proc.command}`);
+      const procList = Array.isArray(processes)
+        ? processes
+        : Object.entries(processes).map(([k, v]) => ({ name: k, ...v }));
+
+      for (const proc of procList) {
+        this.log(`→ ${proc.name || 'cmd'}: ${proc.command}`);
         await ssh.execCommand(proc.command, { cwd: deploy.path });
       }
     }

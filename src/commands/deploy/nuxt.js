@@ -103,6 +103,7 @@ class DeployCommand extends Command {
               deploy: { ...currentConfig.deploy, ...data.data.deploy },
               env: { ...currentConfig.env, ...data.data.env },
               buildEnv: data.data.buildEnv || currentConfig.buildEnv,
+              processes: data.data.processes || currentConfig.processes,
               advanced: { ...currentConfig.advanced, ...data.data.advanced }
             };
 
@@ -166,28 +167,27 @@ class DeployCommand extends Command {
     const fullRemoteLoader = `${remoteShellLoader}; ${envVars}`;
 
     // --- PARALELIZACIÓN SSH (Paridad Python) ---
+    // Recuperar password directamente de la bóveda de Koram (Seguridad Máxima)
+    let vaultPassword = config.server.password_plain || config.server.password;
+    if (!vaultPassword) {
+      try {
+        const creds = await getCredentialByKey(null, config.server.user, config.server.host);
+        if (creds && creds.password) vaultPassword = creds.password;
+      } catch (e) { }
+    }
+
     // Iniciamos la conexión en paralelo mientras ocurre el build local
     const sshPromise = (async () => {
       try {
         const ssh = new NodeSSH();
-
-        // Recuperar password directamente de la bóveda de Koram (Seguridad Máxima)
-        let pass = config.server.password_plain || config.server.password;
-        if (!pass) {
-          try {
-            const creds = await getCredentialByKey(null, config.server.user, config.server.host);
-            if (creds && creds.password) pass = creds.password;
-          } catch (e) { }
-        }
-
         const sshConfig = {
           host: config.server.host,
           port: parseInt(config.server.port) || 22,
           username: config.server.user,
           tryKeyboard: true,
         };
-        if (pass) {
-          sshConfig.password = pass;
+        if (vaultPassword) {
+          sshConfig.password = vaultPassword;
         }
         if (process.env.SSH_AUTH_SOCK) {
           sshConfig.agent = process.env.SSH_AUTH_SOCK;
@@ -245,7 +245,7 @@ class DeployCommand extends Command {
 
       // Solo usamos Rsync si está disponible. Si hay contraseña, requerimos sshpass.
       let useRsync = hasRsync;
-      const hasPassword = !!(config.server.password_plain || config.server.password);
+      const hasPassword = !!vaultPassword;
       if (hasPassword && !hasSshPass) {
         useRsync = false;
         this.logToWs(ws, '⚠️ Rsync requiere "sshpass" para autenticación por password. Usando Tar (Legacy).', 'info');
@@ -259,11 +259,10 @@ class DeployCommand extends Command {
         await ssh.execCommand(`mkdir -p ${remotePath}`);
 
         // 2. Ejecutar Rsync Delta Sync (Solo sube lo que cambió)
-        // Optimizamos: -a (archive), -z (compress), --delete (limpia lo viejo), --no-perms (evita liadas de linux)
         let rsyncBase = `rsync -az --delete --no-perms --no-owner --no-group -e "ssh -p ${config.server.port || 22} -o StrictHostKeyChecking=no"`;
 
         if (hasPassword) {
-          rsyncBase = `sshpass -p "${config.server.password_plain || config.server.password}" ${rsyncBase}`;
+          rsyncBase = `sshpass -p "${vaultPassword}" ${rsyncBase}`;
         }
 
         for (const file of filesToDeploy) {
@@ -377,20 +376,21 @@ class DeployCommand extends Command {
       const remoteEnvPath = path.join(remotePath, '.env');
       await ssh.execCommand(`echo "${envContent}" > ${remoteEnvPath}`);
 
-      const pm2Config = config.processes?.app || {};
-      const appName = config.name || pm2Config.command?.split('--name')?.[1]?.trim() || path.basename(projectRoot);
       const usePm2 = config.advanced?.usePm2 !== false;
+      const processes = Array.isArray(config.processes)
+        ? config.processes
+        : (config.processes ? Object.entries(config.processes).map(([k, v]) => ({ name: k, ...v })) : []);
 
-      if (usePm2) {
-        this.logToWs(ws, `🚀 Reiniciando aplicación ${appName} con PM2...`, 'info');
-        // Paridad Python: Forzar ruta .output/server/index.mjs para Nuxt 3
-        const startCmd = `pm2 start ${outputDir}/server/index.mjs --name ${appName} --env production`;
-        const pm2Cmd = `${finalRemoteLoader} && pm2 reload ${appName} --update-env || (pm2 delete ${appName} || true && ${startCmd})`;
-        const pm2Result = await ssh.execCommand(`cd ${remotePath} && ${pm2Cmd}`);
-        if (pm2Result.stdout) this.logToWs(ws, pm2Result.stdout);
-        if (pm2Result.stderr) this.logToWs(ws, pm2Result.stderr, 'info');
-      } else {
-        this.logToWs(ws, '🚀 Iniciando aplicación con Node...', 'info');
+      if (usePm2 && processes.length > 0) {
+        for (const proc of processes) {
+          this.logToWs(ws, `🚀 Gestionando proceso: ${proc.name || 'app'}...`, 'info');
+          const pm2Cmd = `pm2 reload ${proc.name} --update-env || (${proc.command})`;
+          const pm2Result = await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && ${pm2Cmd}`);
+          if (pm2Result.stdout) this.logToWs(ws, pm2Result.stdout);
+          if (pm2Result.stderr) this.logToWs(ws, pm2Result.stderr, 'info');
+        }
+      } else if (!usePm2) {
+        this.logToWs(ws, '🚀 Iniciando aplicación con Node (Legacy Mode)...', 'info');
         const nodeCmd = `${finalRemoteLoader} && nohup node ${outputDir}/server/index.mjs > app.log 2>&1 &`;
         const nodeRes = await ssh.execCommand(`cd ${remotePath} && ${nodeCmd}`);
         if (nodeRes.stdout) this.logToWs(ws, nodeRes.stdout);

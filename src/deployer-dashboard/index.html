@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Koram Deployer | Nuxt</title>
+    <title>Koram Deployer 2.0</title>
     <link
       href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap"
       rel="stylesheet"
@@ -167,12 +167,65 @@
         </div>
 
         <div class="grid grid-cols-2 gap-4">
+          <!-- SECCIÓN PROCESOS (ARRAY) -->
           <div class="flex flex-col gap-2">
             <label
               class="text-[11px] font-semibold text-text-dim uppercase tracking-wider"
-              >PM2 Name</label
+              >Procesos / Servicios (PM2)</label
             >
-            <input type="text" v-model="form.name" class="input-text" />
+            <div
+              class="border border-border rounded-xl overflow-hidden bg-black/20"
+            >
+              <table class="w-full text-xs">
+                <thead class="bg-white/5">
+                  <tr>
+                    <th
+                      class="px-4 py-2 text-left font-semibold text-text-dim uppercase tracking-tighter"
+                    >
+                      Nombre
+                    </th>
+                    <th
+                      class="px-4 py-2 text-left font-semibold text-text-dim uppercase tracking-tighter"
+                    >
+                      Comando
+                    </th>
+                    <th class="w-10"></th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                  <tr v-for="(p, index) in form.processes" :key="index">
+                    <td class="px-4 py-1">
+                      <input
+                        class="table-input font-bold"
+                        v-model="p.name"
+                        placeholder="app-name"
+                      />
+                    </td>
+                    <td class="px-4 py-1">
+                      <input
+                        class="table-input"
+                        v-model="p.command"
+                        placeholder="pm2 start ..."
+                      />
+                    </td>
+                    <td class="px-2 text-center">
+                      <button
+                        class="text-text-dim hover:text-error transition-colors text-lg"
+                        @click="form.processes.splice(index, 1)"
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div
+                class="py-2.5 text-center text-[11px] font-bold text-primary-light cursor-pointer hover:bg-white/5 transition-colors uppercase"
+                @click="form.processes.push({ name: '', command: '' })"
+              >
+                + Agregar Proceso
+              </div>
+            </div>
           </div>
           <div class="flex flex-col gap-2">
             <label
@@ -199,6 +252,14 @@
             />
           </div>
           <div class="flex items-center justify-between">
+            <span class="text-sm font-medium">Atomic Deploys</span>
+            <input
+              type="checkbox"
+              v-model="form.advanced.atomicDeploys"
+              class="w-5 h-5 accent-primary"
+            />
+          </div>
+          <div class="flex items-center justify-between">
             <span class="text-sm font-medium">Optimizar (Sv)</span>
             <input
               type="checkbox"
@@ -206,14 +267,39 @@
               class="w-5 h-5 accent-primary"
             />
           </div>
-          <div
-            class="flex items-center justify-between col-span-2 mt-1 pt-1 border-t border-border"
-          >
+          <div class="flex items-center justify-between">
             <span class="text-sm font-medium">NPM Install Local</span>
             <input
               type="checkbox"
               v-model="form.advanced.localNpmInstall"
               class="w-5 h-5 accent-primary"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div class="flex flex-col gap-2">
+            <label
+              class="text-[11px] font-semibold text-text-dim uppercase tracking-wider"
+              >Build Command</label
+            >
+            <input
+              type="text"
+              v-model="form.deploy.buildCommand"
+              placeholder="npm run build"
+              class="input-text"
+            />
+          </div>
+          <div class="flex flex-col gap-2">
+            <label
+              class="text-[11px] font-semibold text-text-dim uppercase tracking-wider"
+              >Output Dir</label
+            >
+            <input
+              type="text"
+              v-model="form.deploy.outputDir"
+              placeholder="dist"
+              class="input-text"
             />
           </div>
         </div>
@@ -545,7 +631,16 @@
           const form = reactive({
             name: "",
             server: { user: "", host: "", port: 22 },
-            deploy: { path: "", preDeploy: [], postDeploy: [] },
+            deploy: {
+              path: "",
+              preDeploy: [],
+              postDeploy: [],
+              buildCommand: "",
+              outputDir: "",
+              repository: "",
+              branch: "",
+            },
+            processes: [],
             env: {},
             buildEnv: "",
             advanced: {
@@ -582,18 +677,20 @@
                   data.selected || (data.items.length > 0 ? data.items[0] : "");
                 envFiles.value = data.envs;
               } else if (data.type === "config_data") {
-                const d = data.data;
-                const pm2Name = d.processes?.app?.command
-                  ?.split("--name")?.[1]
-                  ?.trim();
-                form.name = d.name || pm2Name || "";
                 Object.assign(form.server, d.server || {});
-                form.deploy.path = d.deploy?.path || "";
-                form.deploy.preDeploy = d.deploy?.preDeploy || [];
-                form.deploy.postDeploy = d.deploy?.postDeploy || [];
+                form.deploy = { ...form.deploy, ...(d.deploy || {}) };
+                form.processes = Array.isArray(d.processes)
+                  ? d.processes
+                  : d.processes
+                    ? Object.entries(d.processes).map(([k, v]) => ({
+                        name: k,
+                        ...v,
+                      }))
+                    : [];
                 Object.assign(form.advanced, d.advanced || {});
                 form.env = d.env || {};
                 form.buildEnv = d.buildEnv || "";
+                form.name = d.name || "";
               } else if (data.type === "status") {
                 busy.value = data.busy;
                 if (data.busy) {
