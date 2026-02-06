@@ -15,18 +15,26 @@ const { getCredentialByKey, selectKoramConfig } = require('../../utils/index');
 
 class DeployCommand extends Command {
   async run() {
-    const { flags } = this.parse(DeployCommand);
+    const { args, flags } = this.parse(DeployCommand);
+    const alias = args.alias || '.';
     const projectRoot = process.cwd();
 
-    // Determinar config inicial usando la util estable de Koram
-    let initialRC = null;
     try {
       const rcPath = await selectKoramConfig(projectRoot, flags.env);
       initialRC = path.basename(rcPath);
-
       console.log(chalk.cyan('✨ Configuración inicial seleccionada:'), initialRC);
-    } catch (e) {
-      // Si falla o no hay archivos, el Dashboard manejará el estado vacío
+    } catch (e) { }
+
+    let aliasCreds = null;
+    if (alias && alias !== '.') {
+      try {
+        aliasCreds = await getCredentialByKey(alias);
+        if (aliasCreds) {
+          console.log(chalk.cyan(`🔑 Usando alias de credenciales:`), alias);
+        }
+      } catch (e) {
+        console.log(chalk.yellow(`⚠️ No se encontró el alias "${alias}", se usará el contexto del archivo.`));
+      }
     }
 
     // 1. Iniciar Servidor Express para el Dashboard
@@ -59,11 +67,19 @@ class DeployCommand extends Command {
         envs: envFiles
       }));
 
-      // Cargar configuración inicial con Overrides de Flags
+      // Cargar configuración inicial con Overrides de Flags y Alias
       if (preSelected) {
         const configPath = path.join(projectRoot, preSelected);
         if (fs.existsSync(configPath)) {
           let config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+          // Overrides de Alias
+          if (aliasCreds) {
+            if (!config.server) config.server = {};
+            config.server.host = aliasCreds.host || config.server.host;
+            config.server.user = aliasCreds.user || config.server.user;
+            config.server.password = aliasCreds.password || config.server.password;
+          }
 
           // Overrides de Flags de la CLI
           if (flags.host) { if (!config.server) config.server = {}; config.server.host = flags.host; }
@@ -484,5 +500,9 @@ DeployCommand.flags = {
   user: flags.string({ char: 'u', description: 'Usuario SSH para sobrescribir el config' }),
   path: flags.string({ char: 'p', description: 'Ruta remota para sobrescribir el config' }),
 };
+
+DeployCommand.args = [
+  { name: 'alias', description: 'Alias del servidor o "." para usar el contexto local', default: '.' }
+];
 
 module.exports = DeployCommand;

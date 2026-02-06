@@ -14,7 +14,8 @@ const { getCredentialByKey, selectKoramConfig } = require('../../utils/index');
 
 class DeploySPACommand extends Command {
   async run() {
-    const { flags } = this.parse(DeploySPACommand);
+    const { args, flags } = this.parse(DeploySPACommand);
+    const alias = args.alias || '.';
     const projectRoot = process.cwd();
 
     // Determinar config inicial
@@ -25,6 +26,18 @@ class DeploySPACommand extends Command {
       initialRC = path.basename(configPath);
     } catch (e) { }
 
+    let aliasCreds = null;
+    if (alias && alias !== '.') {
+      try {
+        aliasCreds = await getCredentialByKey(alias);
+        if (aliasCreds) {
+          console.log(chalk.cyan(`🔑 Usando alias de credenciales:`), alias);
+        }
+      } catch (e) {
+        this.log(chalk.yellow(`⚠️ No se encontró el alias "${alias}", se usará el contexto del archivo.`));
+      }
+    }
+
     if (flags.now) {
       if (!configPath || !fs.existsSync(configPath)) {
         this.error(chalk.red('❌ No se encontró configuración para el despliegue directo.'));
@@ -32,7 +45,15 @@ class DeploySPACommand extends Command {
       console.log(chalk.cyan('🚀 Iniciando despliegue directo (Headless)...'));
       let config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
-      // Overrides
+      // Overrides de Alias
+      if (aliasCreds) {
+        if (!config.server) config.server = {};
+        config.server.host = aliasCreds.host || config.server.host;
+        config.server.user = aliasCreds.user || config.server.user;
+        config.server.password = aliasCreds.password || config.server.password;
+      }
+
+      // Overrides de Flags
       if (flags.host) { if (!config.server) config.server = {}; config.server.host = flags.host; }
       if (flags.user) { if (!config.server) config.server = {}; config.server.user = flags.user; }
       if (flags.path) { if (!config.deploy) config.deploy = {}; config.deploy.path = flags.path; }
@@ -78,6 +99,15 @@ class DeploySPACommand extends Command {
         const configPath = path.join(projectRoot, preSelected);
         if (fs.existsSync(configPath)) {
           let config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+          // Overrides de Alias
+          if (aliasCreds) {
+            if (!config.server) config.server = {};
+            config.server.host = aliasCreds.host || config.server.host;
+            config.server.user = aliasCreds.user || config.server.user;
+            config.server.password = aliasCreds.password || config.server.password;
+          }
+
           // Overrides
           if (flags.host) { if (!config.server) config.server = {}; config.server.host = flags.host; }
           if (flags.user) { if (!config.server) config.server = {}; config.server.user = flags.user; }
@@ -330,5 +360,9 @@ DeploySPACommand.flags = {
   path: flags.string({ char: 'p', description: 'Ruta remota' }),
   now: flags.boolean({ description: 'Ejecutar despliegue inmediatamente sin Dashboard' }),
 };
+
+DeploySPACommand.args = [
+  { name: 'alias', description: 'Alias del servidor o "." para usar el contexto local', default: '.' }
+];
 
 module.exports = DeploySPACommand;
