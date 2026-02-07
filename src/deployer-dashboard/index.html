@@ -677,6 +677,7 @@
                   data.selected || (data.items.length > 0 ? data.items[0] : "");
                 envFiles.value = data.envs;
               } else if (data.type === "config_data") {
+                const d = data.data;
                 Object.assign(form.server, d.server || {});
                 form.deploy = { ...form.deploy, ...(d.deploy || {}) };
                 form.processes = Array.isArray(d.processes)
