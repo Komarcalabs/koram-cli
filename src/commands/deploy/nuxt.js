@@ -251,6 +251,11 @@ class DeployCommand extends Command {
       const ssh = await sshPromise;
       this.logToWs(ws, '✅ Conexión SSH establecida paralelamente.', 'success');
 
+      // --- LIMPIEZA REMOTA ---
+      this.logToWs(ws, '🧹 Limpiando directorios de construcción remotos...', 'info');
+      const cleanupCmd = `mkdir -p ${config.deploy.path} && cd ${config.deploy.path} && rm -rf .output .nuxt .cache`;
+      await ssh.execCommand(cleanupCmd);
+
       // --- ESTRATEGIA DE TRANSFERENCIA ULTRA-RÁPIDA (Paridad Python + Optimización) ---
       const remotePath = config.deploy.path;
       const hasRsync = execSync('which rsync || true').toString().trim() !== '';
