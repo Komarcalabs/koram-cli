@@ -400,13 +400,31 @@ class DeployCommand extends Command {
         ? config.processes
         : (config.processes ? Object.entries(config.processes).map(([k, v]) => ({ name: k, ...v })) : []);
 
-      if (usePm2 && processes.length > 0) {
+      if (processes.length > 0) {
         for (const proc of processes) {
           this.logToWs(ws, `🚀 Gestionando proceso: ${proc.name || 'app'}...`, 'info');
-          const pm2Cmd = `pm2 reload ${proc.name} --update-env || (${proc.command})`;
-          const pm2Result = await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && ${pm2Cmd}`);
-          if (pm2Result.stdout) this.logToWs(ws, pm2Result.stdout);
-          if (pm2Result.stderr) this.logToWs(ws, pm2Result.stderr, 'info');
+
+          let finalCmd = proc.command;
+
+          // Lógica inteligente para PM2 (Paridad Python + Mejoras)
+          if (usePm2 && proc.command.includes('pm2')) {
+            let pm2Identifier = proc.name || 'app';
+
+            // Regex robusta para capturar el nombre después de --name, manejando espacios y comillas
+            const nameMatch = proc.command.match(/--name\s+["']?([^"'\s]+)["']?/);
+            if (nameMatch) {
+              pm2Identifier = nameMatch[1];
+            }
+
+            // 'pm2 reload' es ideal porque:
+            // 1. Si el proceso existe, aplica los nuevos cambios de código y variables (--update-env)
+            // 2. Si NO existe (||), ejecuta el comando completo del usuario (que puede ser compuesto)
+            finalCmd = `pm2 reload ${pm2Identifier} --update-env || (${proc.command})`;
+          }
+
+          const result = await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && ${finalCmd}`);
+          if (result.stdout) this.logToWs(ws, result.stdout);
+          if (result.stderr) this.logToWs(ws, result.stderr, 'info');
         }
       } else if (!usePm2) {
         this.logToWs(ws, '🚀 Iniciando aplicación con Node (Legacy Mode)...', 'info');
