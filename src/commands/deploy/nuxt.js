@@ -19,9 +19,10 @@ class DeployCommand extends Command {
     const alias = args.alias || '.';
     const projectRoot = process.cwd();
 
+    let initialRC = null;
     try {
       const rcPath = await selectKoramConfig(projectRoot, flags.env);
-      initialRC = path.basename(rcPath);
+      if (rcPath) initialRC = path.basename(rcPath);
       console.log(chalk.cyan('✨ Configuración inicial seleccionada:'), initialRC);
     } catch (e) { }
 
@@ -58,7 +59,7 @@ class DeployCommand extends Command {
       }
 
       // Determinar archivo seleccionado por defecto
-      let preSelected = initialRC || configs[0];
+      let preSelected = initialRC || (configs.length > 0 ? configs[0] : null);
 
       ws.send(JSON.stringify({
         type: 'configs',
