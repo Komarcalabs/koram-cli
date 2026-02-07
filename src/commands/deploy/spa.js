@@ -268,13 +268,17 @@ class DeploySPACommand extends Command {
         if (useAtomic) await ssh.execCommand(`mkdir -p ${fullRemoteDest}`);
 
         let rsyncCmd = `rsync -avz --delete --no-perms --no-owner --no-group -e "ssh -p ${config.server.port || 22} -o StrictHostKeyChecking=no"`;
-        if (vaultPassword) rsyncCmd = `sshpass -p "${vaultPassword}" ${rsyncCmd}`;
+        const rsyncEnv = { ...process.env };
+        if (vaultPassword) {
+          rsyncCmd = `sshpass -e ${rsyncCmd}`;
+          rsyncEnv.SSHPASS = vaultPassword;
+        }
 
         const src = outputDir.endsWith('/') ? outputDir : `${outputDir}/`;
         const dest = `${config.server.user}@${config.server.host}:${fullRemoteDest}/`;
 
         try {
-          execSync(`${rsyncCmd} ${src} ${dest}`, { cwd: projectRoot });
+          execSync(`${rsyncCmd} ${src} ${dest}`, { cwd: projectRoot, env: rsyncEnv });
         } catch (e) {
           this.logToWs(ws, `⚠️ Fallo rsync: ${e.message}. Usando fallback Tar.`, "error");
           await this.transferWithTar(ssh, outputDir, fullRemoteDest, projectRoot, ws);

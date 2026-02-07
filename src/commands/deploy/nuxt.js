@@ -276,9 +276,11 @@ class DeployCommand extends Command {
 
         // 2. Ejecutar Rsync Delta Sync (Solo sube lo que cambió)
         let rsyncBase = `rsync -az --delete --no-perms --no-owner --no-group -e "ssh -p ${config.server.port || 22} -o StrictHostKeyChecking=no"`;
+        const rsyncEnv = { ...process.env };
 
         if (hasPassword) {
-          rsyncBase = `sshpass -p "${vaultPassword}" ${rsyncBase}`;
+          rsyncBase = `sshpass -e ${rsyncBase}`;
+          rsyncEnv.SSHPASS = vaultPassword;
         }
 
         for (const file of filesToDeploy) {
@@ -289,7 +291,7 @@ class DeployCommand extends Command {
             const dest = fs.statSync(file).isDirectory() ? `${rsyncTarget}${file}/` : rsyncTarget;
             if (fs.statSync(file).isDirectory()) await ssh.execCommand(`mkdir -p ${remotePath}/${file}`);
 
-            execSync(`${rsyncBase} ${src} ${dest}`, { cwd: projectRoot });
+            execSync(`${rsyncBase} ${src} ${dest}`, { cwd: projectRoot, env: rsyncEnv });
           } catch (e) {
             this.logToWs(ws, `⚠️ Fallo rsync en ${file}: ${e.message}`, 'error');
           }
