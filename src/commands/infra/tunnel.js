@@ -195,6 +195,7 @@ class ReverseTunnelCommand extends Command {
   async createReverseTunnel({ user, host, password, useSSHKey, sshKeyPath, remotePort, localPort, sshConfig }) {
     this.log(chalk.magenta(`🚀 Estableciendo túnel inverso hacia ${user}@${host}...`));
     this.log(chalk.gray(`↩  ${host}:${remotePort} → localhost:${localPort}`));
+    this.log(chalk.green(`🌍  URL Pública: http://${host}:${remotePort}`));
 
     const sshArgs = [
       '-o', 'ExitOnForwardFailure=yes',
@@ -223,12 +224,12 @@ class ReverseTunnelCommand extends Command {
   }
 }
 
-ReverseTunnelCommand.description = `Crea un túnel inverso SSH localmente usando credenciales Koram.
-Detecta si el puerto remoto está en uso, lo libera automáticamente, 
-y cierra el túnel limpiamente al presionar ENTER.`;
+ReverseTunnelCommand.description = `Crea un túnel inverso (Reverse Proxy) usando un servidor configurado en Koram.
+Usa las credenciales del alias indicado para autenticarse y convertir ese servidor en tu proxy público.
+Detecta conflictos de puertos y los libera automáticamente. Presiona ENTER para cerrar.`;
 
 ReverseTunnelCommand.args = [
-  { name: 'alias', required: true, description: 'Alias del servidor (ej: prod, staging, etc.)' },
+  { name: 'alias', required: true, description: 'Alias del servidor que actuará como PROXY (ej: prod, staging)' },
 ];
 
 ReverseTunnelCommand.flags = {

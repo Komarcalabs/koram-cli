@@ -137,6 +137,53 @@ koram deploy bb_server --extra "--update-env"
 
 ---
 
+## Koram Tunnel (Infra)
+
+`koram infra:tunnel` te permite exponer instantáneamente un puerto de tu máquina local al internet, utilizando uno de tus propios servidores VPS como proxy inverso seguro.
+
+### ¿Cómo funciona?
+
+1.  **Eliges un Aliado**: Seleccionas uno de tus servidores ya configurados en Koram (ej: `production`, `staging`).
+2.  **Conexión Segura**: Koram se conecta vía SSH usando las credenciales guardadas de ese alias.
+3.  **Proxy Inverso**: Convierte ese servidor en un puente, redirigiendo el tráfico de un puerto público del VPS hacia tu puerto local.
+4.  **URL Pública**: Te entrega una URL pública (ej: `http://mi-vps.com:8080`) que puedes compartir para que otros accedan a tu localhost.
+
+### Uso
+
+```bash
+koram infra:tunnel [ALIAS] [FLAGS]
+```
+
+### Argumentos y Flags
+
+| Argumento / Flag      | Descripción                                                    |
+| --------------------- | -------------------------------------------------------------- |
+| **ALIAS** (Requerido) | El alias del servidor que actuará como **PROXY** (ej: `prod`). |
+| `-p, --remotePort`    | El puerto en el **VPS** que se abrirá al público.              |
+| `-l, --localPort`     | El puerto en tu **mac/pc** que quieres exponer.                |
+| `-k, --sshKey`        | Usar llave SSH configurada en lugar de contraseña.             |
+
+### Ejemplos
+
+**Modo Interactivo (Recomendado):**
+Solo indica el alias del servidor proxy, Koram te preguntará los puertos.
+
+```bash
+koram infra:tunnel staging
+```
+
+**Modo Directo:**
+Expone tu puerto local `3000` en el puerto `8080` del servidor `prod`.
+
+```bash
+koram infra:tunnel prod -l 3000 -p 8080
+```
+
+> [!NOTE]
+> Koram detecta automáticamente si el puerto remoto está ocupado y te ofrece liberarlo o intentar con otro puerto.
+
+---
+
 ## Koram Monitor (El Ojo que todo lo ve)
 
 `koram monitor` te permite centralizar la vigilancia de múltiples VPS en un solo Dashboard místico.
