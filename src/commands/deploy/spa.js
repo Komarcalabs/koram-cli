@@ -230,13 +230,22 @@ class DeploySPACommand extends Command {
         await this.runLocalCommand("npm install", projectRoot, ws);
       }
 
-      const buildCmd = config.deploy?.buildCommand || `NODE_ENV=${envName} npm run build`;
-      this.logToWs(ws, `🔨 Ejecutando: ${buildCmd}`, "info");
-      await this.runLocalCommand(buildCmd, projectRoot, ws);
+      // const buildCmd = config.deploy?.buildCommand || `NODE_ENV=${envName} npm run build`;
+      const buildCmd = config.deploy?.buildCommand;
+      if (buildCmd) {
+        this.logToWs(ws, `🔨 Ejecutando: ${buildCmd}`, "info");
+        await this.runLocalCommand(buildCmd, projectRoot, ws);
+      } else {
+        this.logToWs(ws, "⏭️  Saltando paso de build (no se especificó buildCommand).", "info");
+      }
 
-      const outputDir = config.deploy?.outputDir || (fs.existsSync('dist') ? 'dist' : (fs.existsSync('build') ? 'build' : 'dist'));
+      const outputDir = config.deploy?.outputDir ||
+        (fs.existsSync('dist') ? 'dist' :
+          (fs.existsSync('build') ? 'build' :
+            (fs.existsSync('public') ? 'public' : 'dist')));
+
       if (!fs.existsSync(outputDir)) {
-        throw new Error(`No se encontró el directorio de salida (${outputDir}).`);
+        throw new Error(`No se encontró el directorio de salida (${outputDir}). Por favor, asegúrate de haber ejecutado el build o especifica un 'outputDir' en tu configuración.`);
       }
 
       // 2. Esperar SSH
