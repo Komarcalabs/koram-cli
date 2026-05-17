@@ -28,13 +28,33 @@ class InfraDeployCommand extends Command {
     // 🔍 Leer credenciales
     let credentials = await getCredentialByKey(null, server.user, server.host);
 
-    // 📋 Cargar reglas de .koramignore
+    // 📋 Cargar reglas de exclusión (con valores por defecto robustos)
+    const defaultIgnores = [
+      'node_modules',
+      'node_modules/**',
+      '.git',
+      '.git/**',
+      'venv',
+      'venv/**',
+      '.venv',
+      '.venv/**',
+      '.DS_Store'
+    ];
+    let ig = ignore().add(defaultIgnores);
+
     const koramignorePath = path.join(projectRoot, '.koramignore');
-    let ig = ignore();
+    const gitignorePath = path.join(projectRoot, '.gitignore');
+
     if (fs.existsSync(koramignorePath)) {
       const koramignoreContent = fs.readFileSync(koramignorePath, 'utf-8');
-      ig = ignore().add(koramignoreContent.split('\n'));
+      ig.add(koramignoreContent.split('\n'));
       this.log(`📄 Usando reglas de exclusión de .koramignore`);
+    } else if (fs.existsSync(gitignorePath)) {
+      const gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
+      ig.add(gitignoreContent.split('\n'));
+      this.log(`📄 No se encontró .koramignore, cargando exclusiones de .gitignore`);
+    } else {
+      this.log(`📄 Aplicando exclusiones por defecto (node_modules, .git, etc.)`);
     }
 
     // 🔌 Conectar vía SSH
