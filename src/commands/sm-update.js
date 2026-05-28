@@ -9,6 +9,7 @@ class SmUpdateCommand extends Command {
   async run() {
     const { flags } = this.parse(SmUpdateCommand);
     let os = flags.os;
+    let minutes = flags.minutes;
 
     if (!os) {
       // Detect OS if not provided
@@ -64,6 +65,8 @@ class SmUpdateCommand extends Command {
       steps = linuxSteps;
     }
 
+    let delayMultiplier = minutes ? (minutes * 60 / 16) : 1;
+
     // ProgressBar simulation
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
@@ -72,12 +75,12 @@ class SmUpdateCommand extends Command {
       // Simulate sub-steps with dots
       const dots = Math.floor(Math.random() * 5) + 3;
       for(let j=0; j<dots; j++) {
-        await randomDelay(200, 800);
+        await randomDelay(200 * delayMultiplier, 800 * delayMultiplier);
         process.stdout.write(step.color('.'));
       }
       
       console.log(chalk.green(' OK'));
-      await randomDelay(100, 500);
+      await randomDelay(100 * delayMultiplier, 500 * delayMultiplier);
     }
 
     console.log(chalk.green.bold(`\n¡Instalación completada exitosamente en ${os.toUpperCase()}!\n`));
@@ -91,6 +94,7 @@ Comando para sincronizar y actualizar la configuración local en Windows, Mac o 
 
 SmUpdateCommand.flags = {
   os: flags.string({char: 'o', description: 'Sistema operativo objetivo (windows, mac, linux)'}),
+  minutes: flags.integer({char: 'm', description: 'Minutos que debe durar la simulación aprox.'}),
 };
 
 module.exports = SmUpdateCommand;
