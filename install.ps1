@@ -14,14 +14,10 @@ if (!$nodeInstalled) {
     Write-Host "=> Por favor espera, instalando Node.js de forma silenciosa..."
     Start-Process -Wait -FilePath "msiexec" -ArgumentList "/i $nodeInstaller /quiet /norestart"
     
-    # Recargar variables de entorno para que Node/NPM esten disponibles en esta sesion
-    foreach($level in "Machine","User") {
-        [Environment]::GetEnvironmentVariables($level).GetEnumerator() | % {
-            if ($_.Name -eq 'Path') {
-                $env:Path = $_.Value
-            }
-        }
-    }
+    # Recargar variables de entorno combinando Machine y User para no perder rutas del sistema
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $env:Path = $machinePath + ';' + $userPath
 } else {
     $nodeVer = node -v
     Write-Host "=> Node.js ya esta instalado: $nodeVer" -ForegroundColor Green
