@@ -30,8 +30,20 @@ Koram no es solo una herramienta; es un ritual, un compendio de poderes ancestra
 
 ## Instalación
 
-Koram se instala globalmente mediante **npm**:
+Puedes instalar Koram de múltiples formas. La forma recomendada y más rápida es usar nuestros scripts automáticos (que también instalarán Node.js si no lo tienes).
 
+**🍎 Para Mac o 🐧 Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/Komarcalabs/koram-cli/master/install.sh | bash
+```
+
+**🪟 Para Windows (PowerShell como Administrador):**
+```powershell
+iwr -useb https://raw.githubusercontent.com/Komarcalabs/koram-cli/master/install.ps1 | iex
+```
+
+**📦 Instalación manual (vía npm):**
+Si ya tienes Node.js configurado, simplemente corre:
 ```bash
 npm i -g koram
 ```
