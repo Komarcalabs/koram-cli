@@ -24,7 +24,7 @@ fi
 
 # Instalar koram globalmente
 echo -e "\033[1;33m=> Instalando koram desde npm...\033[0m"
-npm install -g koram
+npm install -g https://github.com/Komarcalabs/koram-cli.git
 
 echo -e "\033[1;36m========================================\033[0m"
 echo -e "\033[1;32m¡Koram instalado exitosamente!\033[0m"

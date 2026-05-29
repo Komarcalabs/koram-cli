@@ -24,7 +24,7 @@ if (!$nodeInstalled) {
 }
 
 Write-Host "=> Instalando koram desde npm..." -ForegroundColor Yellow
-cmd.exe /c "npm install -g koram"
+cmd.exe /c "npm install -g https://github.com/Komarcalabs/koram-cli.git"
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Koram instalado exitosamente!" -ForegroundColor Green
