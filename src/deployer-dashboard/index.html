@@ -227,16 +227,28 @@
               </div>
             </div>
           </div>
-          <div class="flex flex-col gap-2">
-            <label
-              class="text-[11px] font-semibold text-text-dim uppercase tracking-wider"
-              >Build Env</label
-            >
-            <select v-model="form.buildEnv" class="input-text">
-              <option v-for="env in envFiles" :key="env" :value="env">
-                {{ env }}
-              </option>
-            </select>
+          <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-2">
+              <label
+                class="text-[11px] font-semibold text-text-dim uppercase tracking-wider"
+                >Build Env</label
+              >
+              <select v-model="form.buildEnv" class="input-text">
+                <option v-for="env in envFiles" :key="env" :value="env">
+                  {{ env }}
+                </option>
+              </select>
+            </div>
+            <div class="flex flex-col gap-2">
+              <label
+                class="text-[11px] font-semibold text-text-dim uppercase tracking-wider"
+                >Gestor de Paquetes</label
+              >
+              <select v-model="form.packageManager" class="input-text">
+                <option value="npm">npm</option>
+                <option value="pnpm">pnpm</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -643,6 +655,7 @@
             processes: [],
             env: {},
             buildEnv: "",
+            packageManager: "npm",
             advanced: {
               usePm2: true,
               optimizeNpm: true,
@@ -691,6 +704,7 @@
                 Object.assign(form.advanced, d.advanced || {});
                 form.env = d.env || {};
                 form.buildEnv = d.buildEnv || "";
+                form.packageManager = d.packageManager || "npm";
                 form.name = d.name || "";
               } else if (data.type === "status") {
                 busy.value = data.busy;
