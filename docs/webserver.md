@@ -114,6 +114,11 @@ Cuando ejecutas `koram infra:webserver` (o se ejecuta al finalizar un deploy) co
 
 ## 4. Integración Declarativa en el Despliegue (`koram deploy`)
 
+> [!IMPORTANT]
+> **Diferencia entre los dos bloques de Servidor Web**:
+> *   **`webserver` (en la Raíz):** Define las especificaciones de **infraestructura física y ruteo** de Nginx (nombre del dominio, puerto, redirección SSL, certificados y opcionalmente un VPS secundario `webserver.server`).
+> *   **`deploy.webserver` (dentro de `deploy`):** Define las **opciones de automatización del flujo del deployer** (si se auto-aplica la sincronización al finalizar el deploy, qué correo usar de contacto en Certbot y si se autoejecuta Certbot).
+
 Puedes programar que el servidor web se sincronice automáticamente al finalizar cada despliegue de código exitoso agregando el bloque `webserver` bajo el apartado `deploy` en tu `.koram-rc.<env>.json`:
 
 ```json
