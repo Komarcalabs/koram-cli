@@ -1,5 +1,15 @@
 #!/usr/bin/env node
 
+const args = process.argv.slice(2);
+if (args.length === 0) {
+  const pjson = require('../package.json');
+  const chalk = require('chalk');
+  console.log(chalk.bold.cyan(`\n⚔️  Koram CLI v${pjson.version} - El Toolkit sagrado del buen Komarquino ⚔️`));
+  console.log(chalk.dim(`Conoce más, reporta issues y contribuye en: `) + chalk.underline.blue(`https://github.com/Komarcalabs/koram-cli`));
+  console.log(`\nCorre ${chalk.bold('koram help')} para ver todos los comandos disponibles.\n`);
+  process.exit(0);
+}
+
 require('@oclif/command').run()
 .then(require('@oclif/command/flush'))
 .catch(require('@oclif/errors/handle'))

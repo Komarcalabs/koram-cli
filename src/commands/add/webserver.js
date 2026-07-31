@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const inquirer = require('inquirer');
 const { selectKoramConfig } = require('../../utils/index');
+const { generateNginxConf, saveLocalConfig, readLocalConfig, getLocalConfigPath } = require('../../utils/nginx');
 
 class AddWebserverCommand extends Command {
   async run() {
@@ -25,16 +26,11 @@ class AddWebserverCommand extends Command {
       }
     }
 
+    const isSpa = config.type === 'spa';
+
     // Función auxiliar para crear configs
-    const makeServerConfig = (opts = {}) => ({
-      serverName: flags.serverName || 'example.com',
-      listen: parseInt(opts.listen || flags.port || 80, 10),
-      ssl: {
-        enabled: !!opts.ssl,
-        certPath: flags.certPath || `/etc/letsencrypt/live/${flags.serverName || 'example.com'}/fullchain.pem`,
-        keyPath: flags.keyPath || `/etc/letsencrypt/live/${flags.serverName || 'example.com'}/privkey.pem`
-      },
-      locations: opts.redirect
+    const makeServerConfig = (opts = {}) => {
+      const locations = opts.redirect
         ? [
             {
               path: '/',
@@ -46,14 +42,26 @@ class AddWebserverCommand extends Command {
         : [
             {
               path: '/',
-              proxyPass: flags.proxyPass || 'http://127.0.0.1:3000',
-              extra: [
+              // Solo agregar proxyPass si no es SPA, o si se pasó explícitamente el flag proxyPass
+              ...((flags.proxyPass || !isSpa) ? { proxyPass: flags.proxyPass || 'http://127.0.0.1:3000' } : {}),
+              extra: (flags.proxyPass || !isSpa) ? [
                 "proxy_set_header Host $host;",
                 "proxy_set_header X-Real-IP $remote_addr;"
-              ]
+              ] : []
             }
-          ]
-    });
+          ];
+
+      return {
+        serverName: flags.serverName || 'example.com',
+        listen: parseInt(opts.listen || flags.port || 80, 10),
+        ssl: {
+          enabled: !!opts.ssl,
+          certPath: flags.certPath || `/etc/letsencrypt/live/${flags.serverName || 'example.com'}/fullchain.pem`,
+          keyPath: flags.keyPath || `/etc/letsencrypt/live/${flags.serverName || 'example.com'}/privkey.pem`
+        },
+        locations
+      };
+    };
 
     let newConfigs = [];
 
@@ -98,9 +106,41 @@ class AddWebserverCommand extends Command {
       }
     }
 
-    // Guardar archivo
+    // Guardar archivo rc
     fs.writeFileSync(rcPath, JSON.stringify(config, null, 2), 'utf-8');
     this.log(`✅ Configuración webserver añadida/actualizada en ${rcPath}`);
+
+    // Generar archivo Nginx local
+    const env = path.basename(rcPath).replace('.koram-rc.', '').replace('.json', '');
+    const appName = config.name || 'koram-app';
+
+    try {
+      const newNginxConf = generateNginxConf(config, env);
+      const localConfPath = getLocalConfigPath(projectRoot, appName, env);
+      const existingConf = readLocalConfig(projectRoot, appName, env);
+
+      let shouldWrite = true;
+      if (existingConf && existingConf !== newNginxConf && !flags.force) {
+        const { overwriteLocal } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'overwriteLocal',
+            message: `El archivo local .koram/webserver/${appName}-${env}.conf ya existe y difiere del generado. ¿Deseas sobrescribirlo?`,
+            default: false
+          }
+        ]);
+        shouldWrite = overwriteLocal;
+      }
+
+      if (shouldWrite) {
+        saveLocalConfig(projectRoot, appName, env, newNginxConf);
+        this.log(`✅ Archivo de plantilla Nginx guardado localmente en: .koram/webserver/${appName}-${env}.conf`);
+      } else {
+        this.log(`⚠️ Se conservó la versión editada localmente de .koram/webserver/${appName}-${env}.conf`);
+      }
+    } catch (e) {
+      this.error(`❌ Error al generar plantilla local de Nginx: ${e.message}`);
+    }
   }
 }
 
@@ -115,7 +155,7 @@ AddWebserverCommand.flags = {
   ssl: flags.boolean({ description: 'Habilitar SSL', default: false }),
   certPath: flags.string({ description: 'Ruta al certificado SSL' }),
   keyPath: flags.string({ description: 'Ruta a la clave privada SSL' }),
-  proxyPass: flags.string({ description: 'Destino interno al que hacer proxy', default: 'http://127.0.0.1:3000' }),
+  proxyPass: flags.string({ description: 'Destino interno al que hacer proxy (ej. http://127.0.0.1:3000)' }),
   redirectToSsl: flags.boolean({ description: 'Crear redirección automática de HTTP→HTTPS', default: false }),
   force: flags.boolean({ char: 'f', description: 'Sobrescribir o reiniciar bloque webserver/config existente' })
 };

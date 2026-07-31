@@ -164,6 +164,63 @@ class DeploySPACommand extends Command {
               this.broadcast(wss, { type: 'status', busy: false });
             }
           }
+
+          if (data.type === 'sync_nginx' && !isBusy) {
+            isBusy = true;
+            this.broadcast(wss, { type: 'status', busy: true });
+            this.logToWs(ws, "🔌 Iniciando sincronización manual de Nginx...", "info");
+
+            const ssh = new NodeSSH();
+            try {
+              const configPath = path.join(projectRoot, data.name);
+              const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+              let vaultPassword = config.server.password_plain || config.server.password;
+              if (!vaultPassword) {
+                try {
+                  const creds = await getCredentialByKey(null, config.server.user, config.server.host);
+                  if (creds && creds.password) vaultPassword = creds.password;
+                } catch (e) { }
+              }
+
+              const connectionOpts = {
+                host: config.server.host,
+                port: parseInt(config.server.port) || 22,
+                username: config.server.user,
+                tryKeyboard: true,
+                agent: process.env.SSH_AUTH_SOCK
+              };
+
+              if (config.server.sshKey) {
+                const keyPath = config.server.sshKey.replace('~', process.env.HOME || process.env.USERPROFILE || '');
+                if (fs.existsSync(keyPath)) {
+                  connectionOpts.privateKey = fs.readFileSync(keyPath);
+                }
+              }
+
+              if (vaultPassword) {
+                connectionOpts.password = vaultPassword;
+              }
+
+              await ssh.connect(connectionOpts);
+              this.logToWs(ws, "✅ Conexión SSH establecida para sincronización.", "success");
+
+              const env = data.name.replace('.koram-rc.', '').replace('.json', '');
+              const { syncRemoteWebserver } = require('../../utils/nginx');
+
+              await syncRemoteWebserver(ssh, config, env, (msg, level) => {
+                this.logToWs(ws, msg, level === 'error' ? 'error' : (level === 'success' ? 'success' : 'info'));
+              });
+
+              this.logToWs(ws, "✅ Sincronización de Nginx finalizada.", "success");
+            } catch (err) {
+              this.logToWs(ws, `❌ Error al sincronizar Nginx: ${err.message}`, "error");
+            } finally {
+              ssh.dispose();
+              isBusy = false;
+              this.broadcast(wss, { type: 'status', busy: false });
+            }
+          }
         } catch (e) {
           console.error('WS Error:', e);
         }
@@ -333,6 +390,29 @@ class DeploySPACommand extends Command {
         }
       }
 
+      // Sincronizar Nginx de forma opcional
+      const webserverEnv = (flags.env || config.environment || 'production');
+      let shouldSyncWebserver = false;
+      if (flags['no-webserver']) {
+        shouldSyncWebserver = false;
+      } else if (flags.webserver) {
+        shouldSyncWebserver = true;
+      } else {
+        shouldSyncWebserver = !!config.deploy?.webserver?.autoApply;
+      }
+
+      if (shouldSyncWebserver && config.webserver) {
+        this.logToWs(ws, "🔌 Iniciando sincronización del servidor web (Nginx)...", "info");
+        const { syncRemoteWebserver } = require('../../utils/nginx');
+        try {
+          await syncRemoteWebserver(ssh, config, webserverEnv, (msg, level) => {
+            this.logToWs(ws, msg, level === 'error' ? 'error' : (level === 'success' ? 'success' : 'info'));
+          });
+        } catch (webserverErr) {
+          this.logToWs(ws, `⚠️ Advertencia en Nginx: ${webserverErr.message}`, "error");
+        }
+      }
+
       this.logToWs(ws, "✅ ¡Despliegue SPA completado!", "success");
       ssh.dispose();
 
@@ -372,6 +452,8 @@ DeploySPACommand.flags = {
   user: flags.string({ char: 'u', description: 'Usuario SSH' }),
   path: flags.string({ char: 'p', description: 'Ruta remota' }),
   now: flags.boolean({ description: 'Ejecutar despliegue inmediatamente sin Dashboard' }),
+  webserver: flags.boolean({ description: 'Fuerza la sincronización de Nginx al finalizar', default: false }),
+  'no-webserver': flags.boolean({ description: 'Evita la sincronización de Nginx al finalizar', default: false }),
 };
 
 DeploySPACommand.args = [

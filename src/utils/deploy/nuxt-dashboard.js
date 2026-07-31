@@ -116,11 +116,70 @@ class NuxtDashboard {
                 if (ws.readyState === ws.OPEN) {
                   ws.send(JSON.stringify({ type: 'deploy_success', url: deployedUrl }));
                 }
-              });
+              }, this.flags);
 
             } catch (err) {
               this.logToWs(ws, `❌ Error crítico: ${err.message}`, 'error');
             } finally {
+              this.isBusy = false;
+              this.broadcast(wss, { type: 'status', busy: false });
+            }
+          }
+
+          if (data.type === 'sync_nginx' && !this.isBusy) {
+            this.isBusy = true;
+            this.broadcast(wss, { type: 'status', busy: true });
+            this.logToWs(ws, "🔌 Sincronizando Nginx de forma manual...", "info");
+
+            const { NodeSSH } = require('node-ssh');
+            const { getCredentialByKey } = require('../index');
+            const ssh = new NodeSSH();
+            try {
+              const configPath = path.join(this.projectRoot, data.name);
+              const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+              let vaultPassword = config.server.password_plain || config.server.password;
+              if (!vaultPassword) {
+                try {
+                  const creds = await getCredentialByKey(null, config.server.user, config.server.host);
+                  if (creds && creds.password) vaultPassword = creds.password;
+                } catch (e) { }
+              }
+
+              const connectionOpts = {
+                host: config.server.host,
+                port: parseInt(config.server.port) || 22,
+                username: config.server.user,
+                tryKeyboard: true,
+                agent: process.env.SSH_AUTH_SOCK
+              };
+
+              if (config.server.sshKey) {
+                const keyPath = config.server.sshKey.replace('~', process.env.HOME || process.env.USERPROFILE || '');
+                if (fs.existsSync(keyPath)) {
+                  connectionOpts.privateKey = fs.readFileSync(keyPath);
+                }
+              }
+
+              if (vaultPassword) {
+                connectionOpts.password = vaultPassword;
+              }
+
+              await ssh.connect(connectionOpts);
+              this.logToWs(ws, "✅ Conexión SSH establecida para sincronización.", "success");
+
+              const env = data.name.replace('.koram-rc.', '').replace('.json', '');
+              const { syncRemoteWebserver } = require('../nginx');
+
+              await syncRemoteWebserver(ssh, config, env, (msg, level) => {
+                this.logToWs(ws, msg, level === 'error' ? 'error' : (level === 'success' ? 'success' : 'info'));
+              });
+
+              this.logToWs(ws, "✅ Sincronización de Nginx finalizada.", "success");
+            } catch (err) {
+              this.logToWs(ws, `❌ Error al sincronizar Nginx: ${err.message}`, "error");
+            } finally {
+              ssh.dispose();
               this.isBusy = false;
               this.broadcast(wss, { type: 'status', busy: false });
             }

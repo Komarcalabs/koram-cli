@@ -17,7 +17,7 @@ En los albores del código, los desarrolladores buscaban un artefacto que guiara
 ## Versión Sagrada
 
 ```
-koram/0.1.2 darwin-arm64 node-v22.9.0
+koram/1.3.8 darwin-arm64 node-v22.9.0
 ```
 
 ---
@@ -33,17 +33,20 @@ Koram no es solo una herramienta; es un ritual, un compendio de poderes ancestra
 Puedes instalar Koram de múltiples formas. La forma recomendada y más rápida es usar nuestros scripts automáticos (que también instalarán Node.js si no lo tienes).
 
 **🍎 Para Mac o 🐧 Linux:**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Komarcalabs/koram-cli/master/install.sh | bash
 ```
 
 **🪟 Para Windows (PowerShell como Administrador):**
+
 ```powershell
 iwr -useb https://raw.githubusercontent.com/Komarcalabs/koram-cli/master/install.ps1 | iex
 ```
 
 **📦 Instalación manual (vía npm):**
 Si ya tienes Node.js configurado, simplemente corre:
+
 ```bash
 npm i -g koram
 ```
@@ -61,242 +64,96 @@ $ koram [COMMAND]
 
 ## Temas del Saber Komarquino
 
-| Tema         | Descripción                                                                             |
-| ------------ | --------------------------------------------------------------------------------------- |
-| **deploy**   | Inicializa un archivo `.koram-rc` en tu proyecto, marcando el inicio de la creación.    |
-| **projects** | Lista todos los proyectos Koram en un directorio, revelando tu legado de desarrollador. |
-| **monitor**  | Vigilancia constante de tus VPS y procesos PM2, el ojo que todo lo ve.                  |
+| Tema          | Descripción                                                                             |
+| ------------- | --------------------------------------------------------------------------------------- |
+| **deploy**    | Inicializa un archivo `.koram-rc` en tu proyecto, marcando el inicio de la creación.    |
+| **projects**  | Lista todos los proyectos Koram en un directorio, revelando tu legado de desarrollador. |
+| **monitor**   | Vigilancia constante de tus VPS y procesos PM2, el ojo que todo lo ve.                  |
+| **webserver** | Gestión de servidores web (Nginx) con IaC, Certbot y SSL automatizado.                  |
 
 ---
 
 ## Comandos Místicos
 
-| Comando                    | Descripción                                                                                                                                    |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| **help**                   | Muestra la guía de sabiduría de Koram.                                                                                                         |
-| **login**                  | Loguéate como un verdadero Wen Komarquino.                                                                                                     |
-| **deploy\*\***:init\*\*    | Inicializa el koram en tu proyecto.                                                                                                            |
-| **deploy\*\***:nuxt\*\*    | Invoca el deployer Python para proyectos Nuxt.                                                                                                 |
-| **deploy\*\***:spa\*\*     | Invoca el deployer Python para SPA.                                                                                                            |
-| **ui**                     | Abre nuestro Libro Sagrado en tu navegador y contempla el poder del toolkit.                                                                   |
-| **doctor**                 | Realiza un chequeo completo del proyecto Node.js: Node, NPM, dependencias, vulnerabilidades y archivos sagrados. Sugiere rituales de sanación. |
-| **clean**                  | Purifica tu proyecto Node.js: elimina node_modules, dist/build, cache de npm y logs temporales. Interactivo o automático con `-y`.             |
-| **serve**                  | Sirve tu proyecto Node.js o carpeta estática con live reload y ritual de protección. Opciones de puerto (`-p`) y ejecución automática (`-y`).  |
-| **monitor\*\***:server\*\* | Inicia el Gran Ojo, el servidor central que recibe las visiones de todos tus agentes.                                                          |
-| **monitor\*\***:agent\*\*  | Despliega un centinela en tu VPS para informar constantemente sobre la salud del sistema y PM2.                                                |
-| **monitor\*\***:setup\*\*  | Comandante de flota: despliega automáticamente el Servidor o el Agente en un remoto usando SSH.                                                |
+| Comando                         | Descripción                                                                                                                                    |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **help**                        | Muestra la guía de sabiduría de Koram.                                                                                                         |
+| **login**                       | Loguéate como un verdadero Wen Komarquino.                                                                                                     |
+| **deploy\*\***:init\*\*         | Inicializa el koram en tu proyecto.                                                                                                            |
+| **deploy\*\***:nuxt\*\*         | Invoca el deployer Python para proyectos Nuxt.                                                                                                 |
+| **deploy\*\***:spa\*\*          | Invoca el deployer Python para SPA.                                                                                                            |
+| **ui**                          | Abre nuestro Libro Sagrado en tu navegador y contempla el poder del toolkit.                                                                   |
+| **doctor**                      | Realiza un chequeo completo del proyecto Node.js: Node, NPM, dependencias, vulnerabilidades y archivos sagrados. Sugiere rituales de sanación. |
+| **clean**                       | Purifica tu proyecto Node.js: elimina node_modules, dist/build, cache de npm y logs temporales. Interactivo o automático con `-y`.             |
+| **serve**                       | Sirve tu proyecto Node.js o carpeta estática con live reload y ritual de protección. Opciones de puerto (`-p`) y ejecución automática (`-y`).  |
+| **monitor\*\***:server\*\*      | Inicia el Gran Ojo, el servidor central que recibe las visiones de todos tus agentes.                                                          |
+| **monitor\*\***:agent\*\*       | Despliega un centinela en tu VPS para informar constantemente sobre la salud del sistema y PM2.                                                |
+| **monitor\*\***:setup\*\*       | Comandante de flota: despliega automáticamente el Servidor o el Agente en un remoto usando SSH.                                                |
+| **add\*\***:webserver\*\*       | Configura interactiva y localmente el bloque webserver de tu app.                                                                              |
+| **infra\*\***:webserver\*\*     | Aplica y sincroniza la configuración Nginx en el servidor remoto con auto-SSL Certbot.                                                         |
+| **infra\*\***:webserver:gen\*\* | Genera localmente la plantilla de configuración de Nginx en `.koram/webserver/`.                                                               |
 
 ---
 
-## Koram Deploy
+## ⚔️ Módulos Sagrados y Guías de Uso
 
-`koram deploy` permite realizar despliegues automáticos de tus proyectos usando alias de servidores y PM2.
-
-### Flujo de uso
-
-1. Guardar credencial(contraseñas) con alias:
-
-```bash
-koram creds:add <alias> --user <usuario> --host <ip_servidor>
-```
-
-2. Ejecutar deploy:
-
-```bash
-koram deploy <alias> [flags]
-```
-
-### Flags
-
-| Flag            | Descripción                                                |
-| --------------- | ---------------------------------------------------------- |
-| `-e, --env`     | Define el entorno a usar. Por defecto: `production`.       |
-| `-x, --extra`   | Parámetros extra opcionales para pasar a PM2.              |
-| `-k, --ssh-key` | Omitir la contraseña guardada y usar llave SSH autorizada. |
-
-### Ejemplos
-
-- Deploy usando la contraseña guardada:
-
-```bash
-koram deploy bb_server
-```
-
-- Deploy usando llave SSH:
-
-```bash
-koram deploy bb_server --ssh-key
-```
-
-- Deploy en otro entorno:
-
-```bash
-koram deploy bb_server --env staging
-```
-
-- Deploy con parámetros extra:
-
-```bash
-koram deploy bb_server --extra "--update-env"
-```
-
-### Comportamiento
-
-- Selecciona credencial automáticamente según alias.
-- Permite seleccionar entre múltiples credenciales o archivos `ecosystem.config.js`.
-- Muestra logs en tiempo real.
-- Compatible con deploy por contraseña o SSH key.
+Koram está dividido en cuatro grandes reinos funcionales. Cada uno cuenta con una guía dedicada y detallada paso a paso para facilitar su lectura en GitHub:
 
 ---
 
-## Koram Tunnel (Infra)
+### 📦 1. Motores de Despliegue (SPA, Nuxt y PM2)
 
-`koram infra:tunnel` te permite exponer instantáneamente un puerto de tu máquina local al internet, utilizando uno de tus propios servidores VPS como proxy inverso seguro.
+Koram cuenta con tres comandos especializados para realizar despliegues automáticos e inteligentes de tus proyectos, mapeando configuraciones a entornos remotos.
 
-### ¿Cómo funciona?
+- **Despliegue de Sitios Estáticos (`koram deploy:spa`)**: Compila localmente, sube por Rsync/Tar delta, crea lanzamientos atómicos y purga versiones antiguas. Posee un dashboard gráfico en el puerto `3889`.
+- **Despliegue de Nuxt.js / Node SSR (`koram deploy:nuxt`)**: Compila en local, sube el código, ejecuta instalación inteligente (`Smart Install`), crea el archivo `.env` dinámico e inicia/recarga los procesos en PM2. Posee un dashboard gráfico en el puerto `3888`.
+- **Despliegue Tradicional de PM2 (`koram deploy:pm2`)**: Ejecuta el despliegue nativo de PM2 mediante `ecosystem.config.js` y auto-resolución de credenciales desde la bóveda segura de Koram.
 
-1.  **Eliges un Aliado**: Seleccionas uno de tus servidores ya configurados en Koram (ej: `production`, `staging`).
-2.  **Conexión Segura**: Koram se conecta vía SSH usando las credenciales guardadas de ese alias.
-3.  **Proxy Inverso**: Convierte ese servidor en un puente, redirigiendo el tráfico de un puerto público del VPS hacia tu puerto local.
-4.  **URL Pública**: Te entrega una URL pública (ej: `http://mi-vps.com:8080`) que puedes compartir para que otros accedan a tu localhost.
-
-### Uso
-
-```bash
-koram infra:tunnel [ALIAS] [FLAGS]
-```
-
-### Argumentos y Flags
-
-| Argumento / Flag      | Descripción                                                    |
-| --------------------- | -------------------------------------------------------------- |
-| **ALIAS** (Requerido) | El alias del servidor que actuará como **PROXY** (ej: `prod`). |
-| `-p, --remotePort`    | El puerto en el **VPS** que se abrirá al público.              |
-| `-l, --localPort`     | El puerto en tu **mac/pc** que quieres exponer.                |
-| `-k, --sshKey`        | Usar llave SSH configurada en lugar de contraseña.             |
-
-### Ejemplos
-
-**Modo Interactivo (Recomendado):**
-Solo indica el alias del servidor proxy, Koram te preguntará los puertos.
-
-```bash
-koram infra:tunnel staging
-```
-
-**Modo Directo:**
-Expone tu puerto local `3000` en el puerto `8080` del servidor `prod`.
-
-```bash
-koram infra:tunnel prod -l 3000 -p 8080
-```
-
-> [!NOTE]
-> Koram detecta automáticamente si el puerto remoto está ocupado y te ofrece liberarlo o intentar con otro puerto.
+👉 **Para ver el detalle de cada parámetro de configuración y guías paso a paso, lee la [Guía Detallada de Despliegues (docs/deployments.md)](docs/deployments.md).**
 
 ---
 
-## Koram Monitor (El Ojo que todo lo ve)
+### 🌐 2. Servidor Web y SSL (Nginx & Certbot)
 
-`koram monitor` te permite centralizar la vigilancia de múltiples VPS en un solo Dashboard místico.
+Automatización completa del servidor web Nginx, integrando un esquema simétrico de Infraestructura como Código (IaC) y aprovisionamiento SSL automático.
 
-### Arquitectura Sagrada
+- **Plantillas locales (`.koram/webserver/`)**: Los archivos de configuración se editan localmente y se guardan en Git. Actúan como la fuente de verdad.
+- **Certificación SSL en dos fases**: Genera un bootstrap temporal en puerto 80, ejecuta Certbot no-interactivamente y sube la configuración final HTTPS recargando el servicio de forma segura.
+- **Servidores Separados**: Mapea despliegues de código a un servidor interno y configuraciones Nginx a un VPS de balanceador/frontal de forma transparente.
 
-- **El Gran Ojo (Servidor Central)**: Actúa como el **Hub**. Se instala solo **UNA VEZ** en un VPS que servirá como tu central de mando.
-- **El Centinela (Agente)**: Actúa como el **Trabajador**. Se instala en **CADA VPS** que quieras vigilar. Los agentes envían ráfagas de datos al Servidor Central.
-
----
-
-### Despliegue de Monitoreo Automático (Recomendado)
-
-Si ya tienes credenciales guardadas en Koram (mira `koram creds:add`), puedes instalar tanto el **Servidor Central** como los **Agentes** en tus VPS con un solo comando:
-
-```bash
-koram monitor:setup mi-vps-alias
-```
-
-Este comando es interactivo y te permitirá:
-
-1. Elegir entre instalar un **Agente** o el **Servidor Central**.
-2. Configurar los parámetros (URL, puertos, keys, auth) de forma sencilla.
-3. Se encargará de:
-   - Conectarse por SSH.
-   - Verificar **Node.js >= 20**.
-   - Instalar/Actualizar **Koram** globalmente.
-   - Configurar e iniciar el servicio en **PM2** de forma persistente.
+👉 **Para ver la guía de comandos Nginx y flujos de automatización SSL, lee la [Guía de Servidor Web y Nginx (docs/webserver.md)](docs/webserver.md).**
 
 ---
 
-### Instalación Manual (Paso a Paso)
+### 🔌 3. Túnel de Infraestructura (Koram Tunnel)
 
-Si prefieres el camino largo o quieres configurar detalles específicos:
+Expón instantáneamente cualquier puerto local de tu máquina de desarrollo (localhost) al internet, utilizando uno de tus propios servidores VPS remotos como un proxy inverso seguro sobre SSH.
 
-### 1. El Gran Ojo (Servidor Central)
+- Ideal para webhooks, pruebas de API móviles o demostraciones a clientes en vivo.
+- Liberación automática de puertos en el servidor remoto si ya están ocupados.
 
-Inicia el servidor que recibirá los reportes de todos tus centinelas.
-
-```bash
-koram monitor:server --port 3000 --key <tu_secret_key>
-```
-
-- **Dashboard**: Disponible en `http://localhost:3000/`. Permanecerá público a menos que se use el flag `--auth`.
-- **Seguridad**: Los agentes **siempre** requieren la clave para reportar. El Dashboard puede protegerse y personalizarse con:
-  ```bash
-  koram monitor:server --port 3000 --key <tu_secret_key> --auth --user admin --pass secreto123
-  ```
-  _(Si se activa `--auth`, usa las credenciales definidas o los valores por defecto: Usuario: `koram` / Contraseña: `<la_key_que_definiste_en_-k>`)\_.
-
-### 2. El Centinela (Agente de Monitoreo)
-
-Despliega el agente en cada uno de tus VPS para que informe su estado.
-
-```bash
-koram monitor:agent --url http://tu-servidor-central.com:3000 --key <tu_secret_key> --name <nombre_vps>
-```
-
-#### Parámetros del Centinela:
-
-| Flag             | Descripción                                                |
-| ---------------- | ---------------------------------------------------------- |
-| `-u, --url`      | La URL donde reside el Gran Ojo.                           |
-| `-k, --key`      | La llave sagrada para autenticarse.                        |
-| `-n, --name`     | Nombre del VPS (opcional, usa el hostname por defecto).    |
-| `-i, --interval` | Frecuencia de los informes en segundos. Por defecto: `60`. |
+👉 **Para ver el funcionamiento y flags del túnel de proxy inverso, lee la [Guía del Túnel de Infraestructura (docs/tunnel.md)](docs/tunnel.md).**
 
 ---
 
-### Flags del Servidor (El Gran Ojo):
+### 👁️ 4. Monitoreo de VPS (Koram Monitor)
 
-| Flag         | Descripción                                                          |
-| ------------ | -------------------------------------------------------------------- |
-| `-p, --port` | Puerto donde escuchará el servidor. Por defecto: `3000`.             |
-| `-k, --key`  | La llave sagrada que deben usar los agentes para reportar.           |
-| `-a, --auth` | Si se incluye, el Dashboard requerirá login (Basic Auth).            |
-| `--user`     | Usuario personalizado para el Dashboard (por defecto: `koram`).      |
-| `--pass`     | Contraseña personalizada para el Dashboard (por defecto: `API_KEY`). |
+Centraliza la vigilancia del estado de salud de tus VPS (CPU, RAM, disco) y estado de tus procesos PM2 en una sola interfaz web.
+
+- **El Gran Ojo (Servidor Central)**: El hub con el Dashboard interactivo web.
+- **El Centinela (Agente)**: Centinelas ligeros ejecutándose en segundo plano en cada servidor remoto que reportan datos al Hub.
+- **Despliegue setup automático**: Comando interactivo (`koram monitor:setup`) para conectarse, aprovisionar dependencias y dejar todo corriendo en PM2 con persistencia.
+
+👉 **Para ver cómo desplegar el servidor y agentes de monitoreo, lee la [Guía de Monitoreo de VPS (docs/monitor.md)](docs/monitor.md).**
 
 ---
 
-## Ejecución en Segundo Plano (Background)
+## 🔑 Registro Único de Credenciales
 
-Para que el Monitor sea eterno, puedes usar **PM2** para correr tanto el servidor como los agentes:
-
-### 1. Correr el Servidor en el Central
+Antes de desplegar o conectar infraestructura, guarda los datos de acceso de tu servidor remoto por única vez bajo un alias en la bóveda encriptada del sistema:
 
 ```bash
-pm2 start "koram monitor:server --port 3000 --key <clave> --auth" --name koram-server
-```
-
-### 2. Correr el Agente en cada VPS
-
-```bash
-pm2 start "koram monitor:agent --url http://monitor.tu-dominio.com --key <clave> --name VPS-1" --name koram-agent
-```
-
-### 3. Guardar estado
-
-```bash
-pm2 save
+koram creds:add mi-vps-alias --user root --host 64.23.174.86 --port 22
 ```
 
 ---

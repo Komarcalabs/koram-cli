@@ -2,25 +2,38 @@
 // SOPORTE PARA QUE SOPORTE ALIAS LOCAL DE . ----> BUSCA KORAM SINO BUSCA EN EL ENTORNO POR EL HOST
 // src/commands/deploy.js
 const { Command, flags } = require('@oclif/command');
-const keytar = require('keytar');
 const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
 const inquirer = require('inquirer');
 const { spawn } = require('child_process');
-const os = require('os')
-const { getCredentialByKey } = require('../../utils/index');
+const os = require('os');
+const { getCredentialByKey, selectKoramConfig } = require('../../utils/index');
 
 class DeployCommand extends Command {
   async run() {
     const { args, flags } = this.parse(DeployCommand);
-    const alias = args.alias;
+    const alias = args.alias || '.';
     const projectRoot = process.cwd();
-    if (!alias) {
-      console.log(chalk.red('❌ Debes indicar un alias de servidor para el deploy'));
-      return;
+
+    // 1. Determinar config de koram-rc y el entorno
+    let rcPath = null;
+    let env = flags.env || 'production';
+    let koramConfig = null;
+
+    try {
+      rcPath = await selectKoramConfig(projectRoot, flags.env);
+      if (rcPath) {
+        koramConfig = JSON.parse(fs.readFileSync(rcPath, 'utf8'));
+        // Determinar env a partir del nombre del archivo rcPath (.koram-rc.<env>.json)
+        env = path.basename(rcPath).replace('.koram-rc.', '').replace('.json', '');
+        console.log(chalk.cyan(`✨ Configuración de Koram seleccionada: .koram-rc.${env}.json`));
+      }
+    } catch (e) {
+      // Si no hay .koram-rc, continuamos tradicionalmente
     }
-    // Detectar archivos ecosystem (.js, .cjs, .ts)
+
+    // 2. Detectar archivos ecosystem (.js, .cjs, .ts)
     const allowedExts = ['.js', '.cjs', '.ts'];
     const ecosystems = fs.readdirSync(projectRoot)
       .filter(f => f.startsWith('ecosystem') && allowedExts.includes(path.extname(f)));
@@ -41,47 +54,59 @@ class DeployCommand extends Command {
       ecosystemFile = answer.selected;
     }
 
-    // Usamos require para importar el archivo
-    var tryPath = path.resolve(process.cwd(), ecosystemFile)
+    // Importar el ecosistema
+    const tryPath = path.resolve(process.cwd(), ecosystemFile);
     delete require.cache[require.resolve(tryPath)];
-    var ecosystemConfig = require(tryPath);
+    const ecosystemConfig = require(tryPath);
 
-    let configFile = ecosystemConfig.deploy[flags.env];
-    var credentials = {};
-    if (alias === '.') {
-      // configFile = JSON.parse(
-      //   fs.readFileSync(await selectKoramConfig(projectRoot, flags.env))
-      // );
-      credentials = await getCredentialByKey(null, configFile.user, configFile.host);
+    const configFile = ecosystemConfig.deploy[env];
+    if (!configFile) {
+      console.log(chalk.red(`❌ No se encontró la configuración del entorno "${env}" en ${ecosystemFile}`));
+      return;
+    }
+
+    // 3. Resolver credenciales
+    let credentials = null;
+    if (alias === '.' || !alias) {
+      // Intentar resolver desde koramConfig o del ecosistema
+      const user = koramConfig?.server?.user || configFile.user;
+      const host = koramConfig?.server?.host || configFile.host;
+      if (user && host) {
+        credentials = await getCredentialByKey(null, user, host);
+      }
     } else {
       credentials = await getCredentialByKey(alias);
     }
 
-    console.log(chalk.green(`🚀 Preparando deploy para ${credentials.user}@${credentials.host} usando ${'contraseña'}...`));
+    if (!credentials) {
+      console.log(chalk.yellow(`⚠️ No se encontraron credenciales guardadas para el servidor. PM2 solicitará la contraseña en consola.`));
+      credentials = { user: configFile.user, host: configFile.host };
+    }
 
-    const env = flags.env || 'production';
+    console.log(chalk.cyan(`📢 Entorno de Despliegue: ${chalk.bold(env.toUpperCase())}`));
+    console.log(chalk.cyan(`🖥️  Servidor Destino: ${chalk.bold(credentials.user + '@' + credentials.host)}`));
+
     const extraParams = flags.extra || '';
     const password = credentials.password;
+    
     // Construir comando PM2
     let pm2Command = `pm2 deploy ${ecosystemFile} ${env} ${extraParams}`.trim();
-    // Si se usa contraseña, prefijamos con sshpass
-    if (password) {
-      // 1️⃣ Crear archivo temporal con el password
+    let passFile = null;
+
+    if (password && !flags.sshKey) {
+      console.log(chalk.green(`🔑 Usando credenciales guardadas en la bóveda de forma segura...`));
       const tmpDir = os.tmpdir();
-      const passFile = path.join(tmpDir, `koram_pass_${Date.now()}.txt`);
+      passFile = path.join(tmpDir, `koram_pass_${Date.now()}.txt`);
       fs.writeFileSync(passFile, password + '\n', { mode: 0o600 });
-      // pm2Command = `sshpass -p '${password}' ${pm2Command}`;
-      // 2️⃣ Usar -f (file) en sshpass → evita problemas con $, !, etc.
       pm2Command = `sshpass -f '${passFile}' ${pm2Command}`;
     }
 
-    console.log(chalk.blue(`🔹 Comando final: Ejecutando pm2 deploy.....`));
-    // Ejecutar PM2 deploy localmente
+    console.log(chalk.blue(`🔹 Iniciando despliegue de PM2 (pm2 deploy)...`));
 
     const logPath = path.resolve(process.cwd(), 'deploy_debug.log');
     const logFile = fs.createWriteStream(logPath, { flags: 'a' });
-    // const deployProcess = spawn(pm2Command, { shell: true });
     const deployProcess = spawn(pm2Command, { shell: true });
+
     deployProcess.stdout.on('data', data => {
       process.stdout.write(data);
       logFile.write(data);
@@ -90,12 +115,19 @@ class DeployCommand extends Command {
       process.stderr.write(data);
       logFile.write(data);
     });
+
     deployProcess.on('exit', code => {
       logFile.end();
+      try {
+        if (passFile && fs.existsSync(passFile)) {
+          fs.unlinkSync(passFile);
+        }
+      } catch (e) {}
+
       if (code === 0) {
-        console.log('✅ Deploy completado con éxito');
+        console.log(chalk.green('✅ Deploy completado con éxito'));
       } else {
-        console.log(`❌ Deploy falló con código ${code}. Revisa ${logPath}`);
+        console.log(chalk.red(`❌ Deploy falló con código ${code}. Revisa ${logPath}`));
       }
     });
   }
@@ -106,11 +138,11 @@ Si se desea omitir la contraseña y usar la llave SSH cargada en el agente, usar
 Permite múltiples archivos ecosystem (.js, .cjs, .ts) y parámetros extra de PM2.`;
 
 DeployCommand.args = [
-  { name: 'alias', required: true, description: 'Alias del servidor a desplegar' }
+  { name: 'alias', required: false, description: 'Alias del servidor o "." para usar el contexto local', default: '.' }
 ];
 
 DeployCommand.flags = {
-  env: flags.string({ char: 'e', description: 'Environment a usar', default: 'production' }),
+  env: flags.string({ char: 'e', description: 'Environment a usar' }),
   extra: flags.string({ char: 'x', description: 'Parámetros extra para pm2' }),
   sshKey: flags.boolean({ char: 'k', description: 'Omitir contraseña y usar SSH key cargada en el agente' }),
 };

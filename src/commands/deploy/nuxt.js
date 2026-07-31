@@ -49,6 +49,8 @@ DeployCommand.flags = {
   host: flags.string({ char: 'h', description: 'Host del servidor para sobrescribir el config' }),
   user: flags.string({ char: 'u', description: 'Usuario SSH para sobrescribir el config' }),
   path: flags.string({ char: 'p', description: 'Ruta remota para sobrescribir el config' }),
+  webserver: flags.boolean({ description: 'Fuerza la sincronización de Nginx al finalizar', default: false }),
+  'no-webserver': flags.boolean({ description: 'Evita la sincronización de Nginx al finalizar', default: false }),
 };
 
 DeployCommand.args = [

@@ -11,7 +11,7 @@ class NuxtExecutor {
     this.log = logFn;
   }
 
-  async executeDeployment(config, projectRoot, onDeploySuccess) {
+  async executeDeployment(config, projectRoot, onDeploySuccess, flags = {}) {
     const remoteShellLoader = 'export PATH=$PATH:/usr/local/bin:/usr/bin:/bin; [ -f ~/.profile ] && . ~/.profile; [ -f ~/.bashrc ] && . ~/.bashrc; [ -f ~/.zshrc ] && . ~/.zshrc';
 
     const envVars = Object.entries(config.env || {}).map(([k, v]) => `export ${k}="${v}"`).join('; ');
@@ -273,6 +273,29 @@ class NuxtExecutor {
           const postResult = await ssh.execCommand(`cd ${remotePath} && ${fullRemoteLoader} && ${cmd}`);
           if (postResult.stdout) this.log(postResult.stdout);
           if (postResult.stderr) this.log(postResult.stderr, 'info');
+        }
+      }
+
+      // Sincronizar Nginx de forma opcional
+      const webserverEnv = (flags.env || config.environment || 'production');
+      let shouldSyncWebserver = false;
+      if (flags['no-webserver']) {
+        shouldSyncWebserver = false;
+      } else if (flags.webserver) {
+        shouldSyncWebserver = true;
+      } else {
+        shouldSyncWebserver = !!config.deploy?.webserver?.autoApply;
+      }
+
+      if (shouldSyncWebserver && config.webserver) {
+        this.log("🔌 Sincronizando servidor web (Nginx)...", "info");
+        const { syncRemoteWebserver } = require('../nginx');
+        try {
+          await syncRemoteWebserver(ssh, config, webserverEnv, (msg, level) => {
+            this.log(msg, level === 'error' ? 'error' : (level === 'success' ? 'success' : 'info'));
+          });
+        } catch (webserverErr) {
+          this.log(`⚠️ Advertencia en Nginx: ${webserverErr.message}`, "error");
         }
       }
 
