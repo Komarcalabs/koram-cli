@@ -70,6 +70,7 @@ $ koram [COMMAND]
 | **projects**  | Lista todos los proyectos Koram en un directorio, revelando tu legado de desarrollador. |
 | **monitor**   | Vigilancia constante de tus VPS y procesos PM2, el ojo que todo lo ve.                  |
 | **webserver** | Gestión de servidores web (Nginx) con IaC, Certbot y SSL automatizado.                  |
+| **backup**    | Respaldo de bases de datos (MongoDB) y archivos remotos con retención y exclusión.     |
 
 ---
 
@@ -92,6 +93,8 @@ $ koram [COMMAND]
 | **add\*\***:webserver\*\*       | Configura interactiva y localmente el bloque webserver de tu app.                                                                              |
 | **infra\*\***:webserver\*\*     | Aplica y sincroniza la configuración Nginx en el servidor remoto con auto-SSL Certbot.                                                         |
 | **infra\*\***:webserver:gen\*\* | Genera localmente la plantilla de configuración de Nginx en `.koram/webserver/`.                                                               |
+| **add\*\***:backup\*\*          | Configura interactiva y localmente el bloque de backups de tu app.                                                                             |
+| **infra\*\***:backup\*\*         | Ejecuta copias de seguridad de bases de datos y carpetas descargándolas en local y aplicando retención.                                         |
 
 ---
 
@@ -148,13 +151,30 @@ Centraliza la vigilancia del estado de salud de tus VPS (CPU, RAM, disco) y esta
 
 ---
 
-## 🔑 Registro Único de Credenciales
+### 💾 5. Módulo de Copias de Seguridad (Koram Backup)
+Automatización y resguardo de datos críticos, integrando backups de bases de datos y carpetas del servidor de forma declarativa.
+* **Respaldo de MongoDB**: Genera dumps comprimidos y estructurados con credenciales seguras.
+* **Respaldos de Directorios**: Comprime carpetas y archivos aplicando exclusiones flexibles (patrones de ignorado).
+* **Multi-Servidor y Retención**: Admite servidores dedicados para backups, los descarga localmente a un directorio `./backups/` seguro (auto-ignorado en Git) y mantiene únicamente la cantidad configurada de copias históricas locales y remotas.
 
-Antes de desplegar o conectar infraestructura, guarda los datos de acceso de tu servidor remoto por única vez bajo un alias en la bóveda encriptada del sistema:
+👉 **Para ver la guía de configuración y comandos de backups, lee la [Guía de Backups (docs/backup.md)](docs/backup.md).**
 
-```bash
-koram creds:add mi-vps-alias --user root --host 64.23.174.86 --port 22
-```
+---
+
+## 🔑 Registro Único de Credenciales (Bóveda de Seguridad)
+
+Antes de desplegar código o configurar infraestructura, guarda tus claves y contraseñas por única vez bajo un alias en la bóveda encriptada del sistema:
+
+* **Servidor SSH:**
+  ```bash
+  koram creds:add mi-vps-alias root 64.23.174.86
+  ```
+* **AWS S3 Cloud:**
+  ```bash
+  koram creds:add mi-s3-alias s3
+  ```
+
+👉 **Para ver la guía completa de almacenamiento de credenciales y seguridad, lee la [Guía de Credenciales (docs/creds.md)](docs/creds.md).**
 
 ---
 

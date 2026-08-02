@@ -71,17 +71,31 @@ class CredsShowCommand extends Command {
     const table = new Table({
       head: [chalk.cyan('Campo'), chalk.cyan('Valor')],
       style: { head: [], border: [] },
-      colWidths: [15, 60],
+      colWidths: [20, 55],
       wordWrap: true,
     });
 
-    table.push(
-      [chalk.blue('Alias'), aliasName],
-      [chalk.blue('Usuario'), user],
-      [chalk.blue('Host'), host],
-      [chalk.blue('Contraseña'), password || chalk.red('(No guardada)')],
-      [chalk.blue('Origen'), origen],
-    );
+    const credentialType = allCreds[keyToUse].type || 'server';
+
+    if (credentialType === 's3') {
+      table.push(
+        [chalk.blue('Alias'), aliasName],
+        [chalk.blue('Tipo'), chalk.yellow('AWS S3')],
+        [chalk.blue('AWS Access Key ID'), user],
+        [chalk.blue('AWS Secret Key'), password || chalk.red('(No guardada)')],
+        [chalk.blue('Región por defecto'), host || '-'],
+        [chalk.blue('Origen'), origen]
+      );
+    } else {
+      table.push(
+        [chalk.blue('Alias'), aliasName],
+        [chalk.blue('Tipo'), chalk.blue('SSH Server')],
+        [chalk.blue('Usuario SSH'), user],
+        [chalk.blue('Host / IP'), host],
+        [chalk.blue('Contraseña SSH'), password || chalk.red('(No guardada)')],
+        [chalk.blue('Origen'), origen]
+      );
+    }
 
     this.log(chalk.blue('🔎 Detalle de la credencial:\n'));
     this.log(table.toString());
@@ -92,6 +106,11 @@ CredsShowCommand.description = `Muestra la información completa de una credenci
 
 CredsShowCommand.args = [
   { name: 'alias', required: true, description: 'Alias de la credencial a mostrar' }
+];
+
+CredsShowCommand.examples = [
+  `${require('chalk').green('koram creds:show mi-servidor')}  # Muestra el detalle de una credencial de servidor`,
+  `${require('chalk').green('koram creds:show mi-s3')}        # Muestra el detalle formateado para AWS S3`
 ];
 
 module.exports = CredsShowCommand;

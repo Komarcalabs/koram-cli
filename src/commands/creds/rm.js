@@ -70,4 +70,8 @@ CredentialRemoveCommand.args = [
   { name: 'alias', required: true, description: 'Alias de la credencial a eliminar' }
 ];
 
+CredentialRemoveCommand.examples = [
+  `${require('chalk').green('koram creds:rm mi-servidor')}  # Elimina la credencial indicada de la bóveda`
+];
+
 module.exports = CredentialRemoveCommand;

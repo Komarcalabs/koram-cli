@@ -12,20 +12,90 @@ try {
 } catch (err) {
     keytar = null;
 }
+async function createDefaultKoramRc(projectRoot, env) {
+    const appName = path.basename(projectRoot);
+    const rcFileName = `.koram-rc.${env}.json`;
+    const rcPath = path.join(projectRoot, rcFileName);
+
+    const defaultConfig = {
+      name: appName,
+      type: 'spa',
+      server: {
+        host: '',
+        user: '',
+        port: 22
+      },
+      deploy: {
+        repository: '',
+        branch: 'main',
+        path: `/var/www/${appName}`,
+        outputDir: 'dist',
+        buildCommand: 'npm run build',
+        atomicDeploys: true,
+        preDeploy: [],
+        postDeploy: []
+      },
+      processes: [
+        {
+          name: appName,
+          command: `pm2 start dist/index.js --name ${appName}`
+        }
+      ],
+      advanced: {
+        usePm2: true,
+        optimizeNpm: true,
+        localNpmInstall: false
+      },
+      env: {
+        NODE_ENV: env,
+        PORT: 3000
+      }
+    };
+
+    fs.writeFileSync(rcPath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
+    console.log(chalk.green(`\n✅ Archivo de configuración por defecto ${rcFileName} creado.`));
+}
+
 module.exports.selectKoramConfig = async function (projectRoot, envFlag) {
     let configPath;
     if (envFlag) {
         // Si el usuario pasó -e
         configPath = path.join(projectRoot, `.koram-rc.${envFlag}.json`);
         if (!fs.existsSync(configPath)) {
-            throw new Error(`❌ No se encontró archivo ${configPath}`);
+            const { init } = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'init',
+                    message: `No se encontró el archivo .koram-rc.${envFlag}.json. ¿Deseas inicializarlo ahora?`,
+                    default: true
+                }
+            ]);
+            if (init) {
+                await createDefaultKoramRc(projectRoot, envFlag);
+            } else {
+                throw new Error(`❌ No se encontró archivo ${configPath}`);
+            }
         }
     } else {
         // Buscar todos los .koram-rc.*.json
-        const configs = glob.sync(path.join(projectRoot, `.koram-rc.*.json`));
+        let configs = glob.sync(path.join(projectRoot, `.koram-rc.*.json`));
         if (configs.length === 0) {
-            throw new Error(`❌ No se encontró ningún archivo .koram-rc.*.json en ${projectRoot}`);
+            const { init } = await inquirer.prompt([
+                {
+                    type: 'confirm',
+                    name: 'init',
+                    message: 'No se encontró ningún archivo de configuración .koram-rc.*.json. ¿Deseas inicializar .koram-rc.production.json por defecto?',
+                    default: true
+                }
+            ]);
+            if (init) {
+                await createDefaultKoramRc(projectRoot, 'production');
+                configs = [path.join(projectRoot, '.koram-rc.production.json')];
+            } else {
+                throw new Error(`❌ No se encontró ningún archivo .koram-rc.*.json en ${projectRoot}`);
+            }
         }
+
         if (configs.length === 1) {
             configPath = configs[0]; // Solo uno → usar ese directamente
         } else {
@@ -115,7 +185,10 @@ module.exports.getCredentialByKey = async function (alias, username, hostname) {
         user,
         host,
         password,
-        origen
+        origen,
+        type: allCreds[keyToUse].type || 'server',
+        accessKeyId: allCreds[keyToUse].accessKeyId || undefined,
+        region: allCreds[keyToUse].region || undefined
     };
 };
 

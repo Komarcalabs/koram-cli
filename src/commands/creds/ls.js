@@ -29,10 +29,11 @@ class CredentialListCommand extends Command {
     const table = new Table({
       head: [
         chalk.cyan('Alias'),
-        chalk.cyan('Usuario'),
-        chalk.cyan('Host'),
+        chalk.cyan('Usuario / ID'),
+        chalk.cyan('Host / Región'),
+        chalk.cyan('Tipo'),
         chalk.cyan('Origen'),
-        ...(flags.showPassword ? [chalk.cyan('Contraseña')] : []),
+        ...(flags.showPassword ? [chalk.cyan('Contraseña / Secret')] : []),
       ],
       style: { head: [], border: [] },
       wordWrap: true,
@@ -61,7 +62,8 @@ class CredentialListCommand extends Command {
         password = meta.password;
       }
 
-      const row = [alias, user, meta.host || '-', origen];
+      const typeDisplay = meta.type === 's3' ? chalk.yellow('AWS S3') : chalk.blue('SSH Server');
+      const row = [alias, user, meta.host || '-', typeDisplay, origen];
 
       if (flags.showPassword) {
         row.push(password ? chalk.green(password) : chalk.red('No encontrada'));
@@ -84,5 +86,10 @@ CredentialListCommand.flags = {
     default: false,
   }),
 };
+
+CredentialListCommand.examples = [
+  `${require('chalk').green('koram creds:ls')}     # Lista todas las credenciales registradas`,
+  `${require('chalk').green('koram creds:ls -p')}  # Muestra además las contraseñas/secrets en texto claro`
+];
 
 module.exports = CredentialListCommand;
