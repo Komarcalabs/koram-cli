@@ -10,7 +10,7 @@ function generateMetadataHeader(appName, env, isBootstrap = false) {
 # GENERADO AUTOMÁTICAMENTE POR KORAM-CLI (Evitar modificaciones directas)
 # Proyecto: ${appName}
 # Entorno: ${env}
-# Archivo Local: .koram/webserver/${appName}-${env}.conf
+# Archivo Local: .koram/webserver/${appName}-${env}.kr.conf
 # Sincronizado el: ${timestamp}
 ${isBootstrap ? '# MODO: Bootstrap Temporal (Sólo Puerto 80 para Certbot Let\'s Encrypt)\n' : ''}# =========================================================================\n`;
 }
@@ -153,7 +153,7 @@ function generateNginxConf(configFile, env, options = {}) {
  * Rutas de archivos locales
  */
 function getLocalConfigPath(projectRoot, appName, env) {
-  return path.join(projectRoot, '.koram', 'webserver', `${appName}-${env}.conf`);
+  return path.join(projectRoot, '.koram', 'webserver', `${appName}-${env}.kr.conf`);
 }
 
 function ensureLocalDir(projectRoot) {
@@ -254,8 +254,8 @@ async function syncRemoteWebserver(ssh, configFile, env, logFn = console.log) {
       saveLocalConfig(process.cwd(), appName, env, nginxConf);
     }
 
-    const remoteConfPath = `/etc/nginx/sites-available/${appName}-${env}.conf`;
-    const remoteEnabledPath = `/etc/nginx/sites-enabled/${appName}-${env}.conf`;
+    const remoteConfPath = `/etc/nginx/sites-available/${appName}-${env}.kr.conf`;
+    const remoteEnabledPath = `/etc/nginx/sites-enabled/${appName}-${env}.kr.conf`;
 
     // 2. Revisar si requerimos inicializar Certbot para SSL
     const configsWithSsl = configs.filter(cfg => cfg.ssl?.enabled);

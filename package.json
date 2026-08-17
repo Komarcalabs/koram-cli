@@ -45,7 +45,8 @@
     "/bin",
     "/npm-shrinkwrap.json",
     "/oclif.manifest.json",
-    "/src"
+    "/src",
+    "/agent-config"
   ],
   "keywords": [
     "oclif"

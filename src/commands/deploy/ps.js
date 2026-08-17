@@ -3,7 +3,7 @@ const { Command, flags } = require('@oclif/command');
 const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
-const { spawnSync } = require('child_process');
+const { exec } = require('child_process');
 const Table = require('cli-table3');
 const { selectKoramConfig } = require('../../utils/index');
 
@@ -52,10 +52,15 @@ class DeployStatusCommand extends Command {
 
     }
 
-    for (const key of keys) {
+    console.log(chalk.cyan(`🔍 Servidores identificados: ${keys.map(k => k.split(':')[0]).join(', ')}\n`));
+    console.log(chalk.blue(`⏳ Consultando procesos PM2 en paralelo...`));
+
+    const startTime = Date.now();
+
+    const promises = keys.map(async (key) => {
       const [alias, user] = key.split(':');
       const host = allCreds[key].host;
-      if (!host) continue;
+      if (!host) return;
 
       // 🔑 Password desde keytar (si existe) o fallback desde el JSON
       let password = null;
@@ -78,61 +83,68 @@ class DeployStatusCommand extends Command {
         sshCommand = `ssh -o StrictHostKeyChecking=no ${user}@${host} "pm2 jlist"`;
       }
 
-      let table = new Table({
-        head: [
-          chalk.cyan('Proceso'),
-          chalk.cyan('ID'),
-          chalk.cyan('Status'),
-          chalk.cyan('CPU'),
-          chalk.cyan('Memoria')
-        ],
-        colWidths: [25, 5, 12, 8, 12],
-        wordWrap: true
-      });
+      return new Promise((resolve) => {
+        exec(sshCommand, { encoding: 'utf8' }, (error, stdout, stderr) => {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          
+          let table = new Table({
+            head: [
+              chalk.cyan('Proceso'),
+              chalk.cyan('ID'),
+              chalk.cyan('Status'),
+              chalk.cyan('CPU'),
+              chalk.cyan('Memoria')
+            ],
+            colWidths: [25, 5, 12, 8, 12],
+            wordWrap: true
+          });
 
-      console.log(chalk.magenta.bold(`\n📡 Servidor: ${alias} → ${user}@${host}`));
+          console.log(chalk.magenta.bold(`\n📡 Servidor: ${alias} → ${user}@${host} ${chalk.dim(`(${elapsed}s)`)}`));
 
-      try {
-        const result = spawnSync(sshCommand, { shell: true, encoding: 'utf8' });
+          if (error || !stdout) {
+            console.log(chalk.red('❌ Error de conexión o sin salida\n'));
+            resolve();
+            return;
+          }
 
-        if (result.error || !result.stdout) {
-          console.log(chalk.red('❌ Error de conexión o sin salida\n'));
-          continue;
-        }
+          let processes;
+          try {
+            processes = JSON.parse(stdout);
+          } catch {
+            console.log(chalk.red('❌ Error al parsear JSON de pm2 jlist\n'));
+            resolve();
+            return;
+          }
 
-        let processes;
-        try {
-          processes = JSON.parse(result.stdout);
-        } catch {
-          console.log(chalk.red('❌ Error al parsear JSON de pm2 jlist\n'));
-          continue;
-        }
+          if (!Array.isArray(processes) || processes.length === 0) {
+            console.log(chalk.yellow('⚠️ Sin procesos activos en este servidor\n'));
+            resolve();
+            return;
+          }
 
-        if (!Array.isArray(processes) || processes.length === 0) {
-          console.log(chalk.yellow('⚠️ Sin procesos activos en este servidor\n'));
-          continue;
-        }
+          processes.forEach(p => {
+            const statusColor =
+              p.pm2_env.status === 'online'
+                ? chalk.green('online')
+                : chalk.red(p.pm2_env.status);
 
-        processes.forEach(p => {
-          const statusColor =
-            p.pm2_env.status === 'online'
-              ? chalk.green('online')
-              : chalk.red(p.pm2_env.status);
+            table.push([
+              p.name,
+              p.pm_id,
+              statusColor,
+              `${p.monit.cpu}%`,
+              `${Math.round(p.monit.memory / 1024 / 1024)} MB`
+            ]);
+          });
 
-          table.push([
-            p.name,
-            p.pm_id,
-            statusColor,
-            `${p.monit.cpu}%`,
-            `${Math.round(p.monit.memory / 1024 / 1024)} MB`
-          ]);
+          console.log(table.toString());
+          resolve();
         });
+      });
+    });
 
-        console.log(table.toString());
-      } catch (err) {
-        console.log(chalk.red('❌ Error inesperado ejecutando el comando SSH\n'));
-      }
-    }
+    await Promise.all(promises);
+    console.log(chalk.green(`\n✅ Consulta de todos los servidores finalizada en ${((Date.now() - startTime) / 1000).toFixed(1)}s`));
   }
 }
 
