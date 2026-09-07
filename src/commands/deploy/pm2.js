@@ -93,18 +93,40 @@ class DeployCommand extends Command {
     let pm2Command = `pm2 deploy ${ecosystemFile} ${env} ${extraParams}`.trim();
     let passFile = null;
 
-    if (password && !flags.sshKey) {
-      console.log(chalk.green(`🔑 Usando credenciales guardadas en la bóveda de forma segura...`));
+    const { execSync } = require('child_process');
+    const hasSshPass = execSync('which sshpass || true').toString().trim() !== '';
+
+    if (password && !flags.sshKey && hasSshPass) {
+      console.log(chalk.green(`🔑 Usando credenciales guardadas en la bóveda de forma segura (con sshpass)...`));
       const tmpDir = os.tmpdir();
       passFile = path.join(tmpDir, `koram_pass_${Date.now()}.txt`);
       fs.writeFileSync(passFile, password + '\n', { mode: 0o600 });
       pm2Command = `sshpass -f '${passFile}' ${pm2Command}`;
     }
 
-    console.log(chalk.blue(`🔹 Iniciando despliegue de PM2 (pm2 deploy)...`));
-
     const logPath = path.resolve(process.cwd(), 'deploy_debug.log');
     const logFile = fs.createWriteStream(logPath, { flags: 'a' });
+
+    // Fallback nativo: si se usa contraseña y no hay sshpass localmente
+    const useNativeDeploy = (password && !flags.sshKey && !hasSshPass);
+
+    if (useNativeDeploy) {
+      console.log(chalk.yellow(`⚠️  sshpass no está instalado localmente. Ejecutando despliegue de PM2 en modo nativo (node-ssh)...`));
+      try {
+        await this.executeNativeDeploy(configFile, env, credentials, extraParams, logPath, logFile);
+        logFile.end();
+        console.log(chalk.green('✅ Deploy completado con éxito'));
+      } catch (err) {
+        logFile.write(`\n❌ Error: ${err.message}\n`);
+        logFile.end();
+        console.log(chalk.red(`❌ Deploy falló: ${err.message}. Revisa ${logPath}`));
+        process.exit(1);
+      }
+      return;
+    }
+
+    console.log(chalk.blue(`🔹 Iniciando despliegue de PM2 (pm2 deploy)...`));
+
     const deployProcess = spawn(pm2Command, { shell: true });
 
     deployProcess.stdout.on('data', data => {
@@ -130,6 +152,110 @@ class DeployCommand extends Command {
         console.log(chalk.red(`❌ Deploy falló con código ${code}. Revisa ${logPath}`));
       }
     });
+  }
+
+  async executeNativeDeploy(configFile, env, credentials, extraParams, logPath, logFile) {
+    const { NodeSSH } = require('node-ssh');
+    const ssh = new NodeSSH();
+
+    const connectionOpts = {
+      host: credentials.host || configFile.host,
+      port: parseInt(credentials.port || configFile.port) || 22,
+      username: credentials.user || configFile.user,
+      tryKeyboard: true,
+      agent: process.env.SSH_AUTH_SOCK
+    };
+
+    if (credentials.password) {
+      connectionOpts.password = credentials.password;
+    }
+
+    if (configFile.key) {
+      const resolvedKeyPath = configFile.key.replace(/^~/, os.homedir());
+      if (fs.existsSync(resolvedKeyPath)) {
+        connectionOpts.privateKey = fs.readFileSync(resolvedKeyPath, 'utf8');
+      }
+    }
+
+    console.log(chalk.cyan(`🔑 Conectando vía SSH nativo (node-ssh) a ${connectionOpts.username}@${connectionOpts.host}...`));
+    await ssh.connect(connectionOpts);
+    console.log(chalk.green(`✅ Conexión SSH nativa establecida.`));
+
+    const remotePath = configFile.path;
+    const repo = configFile.repo;
+    const ref = configFile.ref || 'origin/master';
+    const postDeploy = configFile['post-deploy'];
+
+    const gitBranch = ref.split('/').pop() || 'master';
+
+    // Determinar si es "setup"
+    const isSetup = extraParams === 'setup';
+
+    if (isSetup) {
+      console.log(chalk.blue(`🔹 Ejecutando setup del directorio remoto en ${remotePath}...`));
+      logFile.write(`--- Iniciando Setup Remoto ---\n`);
+
+      const mkdirResult = await ssh.execCommand(`mkdir -p "${remotePath}/shared" "${remotePath}/source"`, { cwd: '/' });
+      if (mkdirResult.stdout) { process.stdout.write(mkdirResult.stdout); logFile.write(mkdirResult.stdout); }
+      if (mkdirResult.stderr) { process.stderr.write(mkdirResult.stderr); logFile.write(mkdirResult.stderr); }
+
+      console.log(chalk.blue(`🔹 Clonando repositorio ${repo} en ${remotePath}/source...`));
+      const cloneResult = await ssh.execCommand(`git clone "${repo}" "${remotePath}/source"`, { cwd: remotePath });
+      if (cloneResult.stdout) { process.stdout.write(cloneResult.stdout); logFile.write(cloneResult.stdout); }
+      if (cloneResult.stderr) { process.stderr.write(cloneResult.stderr); logFile.write(cloneResult.stderr); }
+
+      console.log(chalk.green(`✅ Setup finalizado en el servidor.`));
+      ssh.dispose();
+      return;
+    }
+
+    console.log(chalk.blue(`🔹 Iniciando despliegue de Git y comandos remotos...`));
+    logFile.write(`--- Iniciando Despliegue Remoto ---\n`);
+
+    // 1. Verificar si la carpeta existe y tiene repositorio git.
+    const checkGit = await ssh.execCommand(`[ -d "source/.git" ] && echo "exists" || echo "missing"`, { cwd: remotePath });
+    if (checkGit.stdout.trim() !== 'exists') {
+      console.log(chalk.yellow(`⚠️ El repositorio no está inicializado en el servidor. Ejecutando setup automático...`));
+      await ssh.execCommand(`mkdir -p "${remotePath}/shared" "${remotePath}/source"`, { cwd: '/' });
+      const cloneResult = await ssh.execCommand(`git clone "${repo}" "${remotePath}/source"`, { cwd: remotePath });
+      if (cloneResult.stdout) { process.stdout.write(cloneResult.stdout); logFile.write(cloneResult.stdout); }
+      if (cloneResult.stderr) { process.stderr.write(cloneResult.stderr); logFile.write(cloneResult.stderr); }
+    }
+
+    // 2. Ejecutar comandos git
+    console.log(chalk.blue(`🔹 Actualizando código vía Git (${ref})...`));
+    const gitCommands = [
+      `cd "${remotePath}/source"`,
+      `git stash || true`,
+      `git fetch --all`,
+      `git checkout "${gitBranch}" || git checkout -b "${gitBranch}" || true`,
+      `git reset --hard "${ref}"`
+    ].join(' && ');
+
+    const gitResult = await ssh.execCommand(gitCommands);
+    if (gitResult.stdout) { process.stdout.write(gitResult.stdout); logFile.write(gitResult.stdout); }
+    if (gitResult.stderr) { process.stderr.write(gitResult.stderr); logFile.write(gitResult.stderr); }
+
+    if (gitResult.code !== 0) {
+      throw new Error(`Los comandos de Git fallaron con código ${gitResult.code}`);
+    }
+
+    // 3. Ejecutar comandos post-deploy cargando la shell de login para nvm/npm
+    if (postDeploy) {
+      console.log(chalk.blue(`🔹 Ejecutando comandos Post-Deploy en el servidor...`));
+      const postDeployCmd = `bash -l -c "cd \"${remotePath}/source\" && ${postDeploy}"`;
+      
+      const postResult = await ssh.execCommand(postDeployCmd);
+      if (postResult.stdout) { process.stdout.write(postResult.stdout); logFile.write(postResult.stdout); }
+      if (postResult.stderr) { process.stderr.write(postResult.stderr); logFile.write(postResult.stderr); }
+
+      if (postResult.code !== 0) {
+        throw new Error(`El script de post-deploy falló con código ${postResult.code}`);
+      }
+    }
+
+    console.log(chalk.green(`✅ Despliegue nativo completado con éxito.`));
+    ssh.dispose();
   }
 }
 

@@ -1,17 +1,13 @@
 const {expect, test} = require('@oclif/test')
 
-describe('hello', () => {
+describe('init command help', () => {
   test
   .stdout()
-  .command(['hello'])
-  .it('runs hello', ctx => {
-    expect(ctx.stdout).to.contain('hello world')
-  })
-
-  test
-  .stdout()
-  .command(['hello', '--name', 'jeff'])
-  .it('runs hello --name jeff', ctx => {
-    expect(ctx.stdout).to.contain('hello jeff')
+  .command(['help', 'init'])
+  .it('runs help init and displays description', ctx => {
+    expect(ctx.stdout).to.contain('Inicializa un archivo de configuración')
   })
 })
+
+
+

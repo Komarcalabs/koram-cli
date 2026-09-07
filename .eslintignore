@@ -1,0 +1,5 @@
+node_modules
+venv
+.nyc_output
+dist
+tmp

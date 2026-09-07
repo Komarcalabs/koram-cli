@@ -6,13 +6,52 @@ const crypto = require('crypto');
 const chalk = require('chalk');
 const { getCredentialByKey } = require('../index');
 
+const KNOWN_NATIVE_PACKAGES = [
+  'sqlite3',
+  'better-sqlite3',
+  'sharp',
+  'bcrypt',
+  'canvas',
+  'argon2',
+  '@prisma/client',
+  'fsevents',
+  'node-sass',
+  'isolated-vm'
+];
+
+function getNativePackagesToRebuild(pkgJsonContent, configuredRebuild) {
+  if (Array.isArray(configuredRebuild)) {
+    return configuredRebuild;
+  }
+  let declaredDeps = {};
+  if (typeof pkgJsonContent === 'object' && pkgJsonContent !== null) {
+    declaredDeps = { ...(pkgJsonContent.dependencies || {}), ...(pkgJsonContent.devDependencies || {}) };
+  } else if (typeof pkgJsonContent === 'string') {
+    try {
+      const parsed = JSON.parse(pkgJsonContent);
+      declaredDeps = { ...(parsed.dependencies || {}), ...(parsed.devDependencies || {}) };
+    } catch (e) { }
+  }
+
+  const detected = KNOWN_NATIVE_PACKAGES.filter(pkg => declaredDeps[pkg] !== undefined);
+  if (configuredRebuild === true && detected.length === 0) {
+    return ['--all'];
+  }
+  return detected;
+}
+
 class NuxtExecutor {
   constructor(logFn) {
     this.log = logFn;
   }
 
   async executeDeployment(config, projectRoot, onDeploySuccess, flags = {}) {
-    const remoteShellLoader = 'export PATH=$PATH:/usr/local/bin:/usr/bin:/bin; [ -f ~/.profile ] && . ~/.profile; [ -f ~/.bashrc ] && . ~/.bashrc; [ -f ~/.zshrc ] && . ~/.zshrc';
+    const nvmLoaders = '[ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"; [ -s "/usr/local/opt/nvm/nvm.sh" ] && . "/usr/local/opt/nvm/nvm.sh"; [ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && . "/opt/homebrew/opt/nvm/nvm.sh"';
+    let nodeVerCmd = '';
+    if (config.advanced?.nodeVersion) {
+      nodeVerCmd = `nvm use ${config.advanced.nodeVersion} >/dev/null 2>&1 || true; `;
+    }
+    const remoteShellLoader = `export PATH=$PATH:/usr/local/bin:/usr/bin:/bin; ${nvmLoaders}; ${nodeVerCmd}[ -f ~/.profile ] && . ~/.profile; [ -f ~/.bashrc ] && . ~/.bashrc; [ -f ~/.zshrc ] && . ~/.zshrc`;
 
     const envVars = Object.entries(config.env || {}).map(([k, v]) => `export ${k}="${v}"`).join('; ');
     const fullRemoteLoader = `${remoteShellLoader}; ${envVars}`;
@@ -170,50 +209,116 @@ class NuxtExecutor {
         }
       }
 
-      // 4. Smart Install (Hash check)
-      this.log('🧠 Verificando dependencias (Smart Install)...', 'info');
-      const lockPath = path.join(projectRoot, lockFile);
-      const localHash = fs.existsSync(lockPath)
-        ? crypto.createHash('sha256').update(fs.readFileSync(lockPath)).digest('hex')
-        : crypto.createHash('sha256').update(fs.readFileSync(path.join(projectRoot, 'package.json'))).digest('hex');
+      // 4. Smart Install (.output/server & Root)
+      const serverPkgPath = path.join(projectRoot, outputDir, 'server', 'package.json');
+      const hasServerPkg = fs.existsSync(serverPkgPath);
+      const shouldServerInstall = config.advanced?.serverInstall !== false && hasServerPkg;
 
-      const remoteHashResult = await ssh.execCommand(`cat ${remotePath}/.lockhash`);
-      const remoteHash = remoteHashResult.stdout.trim();
+      if (shouldServerInstall) {
+        this.log(`🧠 Verificando dependencias de servidor Nitro (${outputDir}/server)...`, 'info');
+        const serverPkgRaw = fs.readFileSync(serverPkgPath, 'utf-8');
+        const localServerHash = crypto.createHash('sha256').update(serverPkgRaw).digest('hex');
 
-      if (localHash === remoteHash) {
-        this.log(`✅ Dependencias idénticas. Saltando ${packageManager} install.`, 'success');
-      } else {
-        this.log(`🔄 Cambios detectados. Sincronizando módulos en el servidor (Modo Robusto - ${packageManager})...`, 'info');
+        const remoteServerHashResult = await ssh.execCommand(`cat ${remotePath}/${outputDir}/server/.server_lockhash 2>/dev/null || true`);
+        const remoteServerHash = remoteServerHashResult.stdout.trim();
 
-        await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && node -v && ${packageManager} -v && which git || echo "⚠️ Git no encontrado"`);
+        const checkNodeModules = await ssh.execCommand(`[ -d "${remotePath}/${outputDir}/server/node_modules" ] && echo "exists" || echo "missing"`);
+        const serverModulesExist = checkNodeModules.stdout.trim() === 'exists';
 
-        const optimizeNpm = config.advanced?.optimizeNpm !== false;
-
-        let envBypass = '';
-        let installCmd = '';
-
-        if (packageManager === 'pnpm') {
-          envBypass = 'export PNPM_CONFIG_REGISTRY=https://registry.npmjs.org/;';
-          installCmd = 'pnpm install --prod --no-frozen-lockfile';
+        if (localServerHash === remoteServerHash && serverModulesExist) {
+          this.log(`✅ Dependencias de ${outputDir}/server idénticas y al día. Saltando instalación.`, 'success');
         } else {
-          envBypass = 'export NPM_CONFIG_ENGINE_STRICT=false; export NPM_CONFIG_LEGACY_PEER_DEPS=true; export NPM_CONFIG_REGISTRY=https://registry.npmjs.org/;';
-          let npmFlags = '--omit=dev --no-audit --no-progress';
-          if (optimizeNpm) npmFlags += ' --prefer-offline';
-          installCmd = `npm install ${npmFlags}`;
+          this.log(`🔄 Sincronizando módulos de ${outputDir}/server en el servidor...`, 'info');
+          const envBypass = 'export NPM_CONFIG_ENGINE_STRICT=false; export NPM_CONFIG_LEGACY_PEER_DEPS=true; export NPM_CONFIG_REGISTRY=https://registry.npmjs.org/;';
+          const serverInstallCmd = `npm install --omit=dev --no-audit --no-progress`;
+
+          const installRes = await ssh.execCommand(`cd ${remotePath}/${outputDir}/server && ${finalRemoteLoader} && ${envBypass} ${serverInstallCmd}`);
+          if (installRes.code !== 0) {
+            this.log(`⚠️ Advertencia en ${outputDir}/server install: ${installRes.stderr || installRes.stdout}`, 'error');
+            this.log('🔄 Reintentando con limpieza de node_modules en el servidor...', 'info');
+            await ssh.execCommand(`cd ${remotePath}/${outputDir}/server && rm -rf node_modules package-lock.json && ${finalRemoteLoader} && ${envBypass} ${serverInstallCmd}`);
+          }
+
+          // Detección y reconstrucción de módulos nativos en .output/server
+          const nativeToRebuild = getNativePackagesToRebuild(serverPkgRaw, config.advanced?.nativeRebuild);
+          this.log(`🔨 Verificando/Reconstruyendo módulos nativos en ${outputDir}/server...`, 'info');
+
+          let rebuildCmd = '';
+          if (nativeToRebuild.length > 0 && !nativeToRebuild.includes('--all')) {
+            this.log(`⚙️ Reconstruyendo binarios nativos: ${nativeToRebuild.join(', ')}...`, 'info');
+            rebuildCmd = `${envBypass} (npm rebuild ${nativeToRebuild.join(' ')} --build-from-source || npm rebuild --build-from-source || echo '⚠️ Advertencia en rebuild')`;
+          } else {
+            rebuildCmd = `${envBypass} (npm rebuild --build-from-source || npm rebuild --update-binary || echo '⚠️ Advertencia en rebuild')`;
+          }
+
+          const rebuildRes = await ssh.execCommand(`cd ${remotePath}/${outputDir}/server && ${finalRemoteLoader} && ${rebuildCmd}`);
+          if (rebuildRes.stdout) this.log(rebuildRes.stdout);
+          if (rebuildRes.stderr && rebuildRes.code !== 0) this.log(rebuildRes.stderr, 'info');
+
+          await ssh.execCommand(`echo "${localServerHash}" > ${remotePath}/${outputDir}/server/.server_lockhash`);
+          this.log(`✅ Dependencias de ${outputDir}/server listas.`, 'success');
         }
+      }
 
-        const installResult = await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && ${envBypass} ${installCmd}`);
-        if (installResult.code !== 0) {
-          this.log(`⚠️ Advertencia en ${packageManager} install: ${installResult.stderr}`, 'error');
-          this.log('🔄 Reintentando con limpieza de node_modules (Modo Nuclear)...', 'info');
-          await ssh.execCommand(`cd ${remotePath} && rm -rf node_modules ${lockFile} && ${finalRemoteLoader} && ${envBypass} ${installCmd}`);
+      // 4.1. Smart Install (Root project)
+      const lockPath = path.join(projectRoot, lockFile);
+      const hasRootPkg = fs.existsSync(path.join(projectRoot, 'package.json'));
+      if (hasRootPkg && config.advanced?.rootInstall !== false) {
+        this.log('🧠 Verificando dependencias raíz (Smart Install)...', 'info');
+        const localHash = fs.existsSync(lockPath)
+          ? crypto.createHash('sha256').update(fs.readFileSync(lockPath)).digest('hex')
+          : crypto.createHash('sha256').update(fs.readFileSync(path.join(projectRoot, 'package.json'))).digest('hex');
+
+        const remoteHashResult = await ssh.execCommand(`cat ${remotePath}/.lockhash 2>/dev/null || true`);
+        const remoteHash = remoteHashResult.stdout.trim();
+
+        const checkRootModules = await ssh.execCommand(`[ -d "${remotePath}/node_modules" ] && echo "exists" || echo "missing"`);
+        const rootModulesExist = checkRootModules.stdout.trim() === 'exists';
+
+        if (localHash === remoteHash && rootModulesExist) {
+          this.log(`✅ Dependencias raíz idénticas. Saltando ${packageManager} install.`, 'success');
+        } else {
+          this.log(`🔄 Cambios detectados en raíz. Sincronizando módulos en el servidor (Modo Robusto - ${packageManager})...`, 'info');
+
+          await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && node -v && ${packageManager} -v && which git || echo "⚠️ Git no encontrado"`);
+
+          const optimizeNpm = config.advanced?.optimizeNpm !== false;
+
+          let envBypass = '';
+          let installCmd = '';
+
+          if (packageManager === 'pnpm') {
+            envBypass = 'export PNPM_CONFIG_REGISTRY=https://registry.npmjs.org/;';
+            installCmd = 'pnpm install --prod --no-frozen-lockfile';
+          } else {
+            envBypass = 'export NPM_CONFIG_ENGINE_STRICT=false; export NPM_CONFIG_LEGACY_PEER_DEPS=true; export NPM_CONFIG_REGISTRY=https://registry.npmjs.org/;';
+            let npmFlags = '--omit=dev --no-audit --no-progress';
+            if (optimizeNpm) npmFlags += ' --prefer-offline';
+            installCmd = `npm install ${npmFlags}`;
+          }
+
+          const installResult = await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && ${envBypass} ${installCmd}`);
+          if (installResult.code !== 0) {
+            this.log(`⚠️ Advertencia en ${packageManager} install: ${installResult.stderr}`, 'error');
+            this.log('🔄 Reintentando con limpieza de node_modules (Modo Nuclear)...', 'info');
+            await ssh.execCommand(`cd ${remotePath} && rm -rf node_modules ${lockFile} && ${finalRemoteLoader} && ${envBypass} ${installCmd}`);
+          }
+
+          let rootPkgRaw = null;
+          try { rootPkgRaw = fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf-8'); } catch (e) { }
+          const rootNativeToRebuild = getNativePackagesToRebuild(rootPkgRaw, config.advanced?.nativeRebuild);
+
+          this.log('🔨 Reconstruyendo módulos nativos en raíz del servidor...', 'info');
+          let rebuildCmd = '';
+          if (rootNativeToRebuild.length > 0 && !rootNativeToRebuild.includes('--all')) {
+            rebuildCmd = `${envBypass} (${packageManager} rebuild ${rootNativeToRebuild.join(' ')} || npm rebuild ${rootNativeToRebuild.join(' ')} --build-from-source || ${packageManager} rebuild || echo '⚠️ Advertencia en rebuild')`;
+          } else {
+            rebuildCmd = `${envBypass} (${packageManager} rebuild || npm rebuild --update-binary || npm rebuild --build-from-source || echo '⚠️ Advertencia en rebuild')`;
+          }
+          await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && ${rebuildCmd}`);
+
+          await ssh.execCommand(`echo "${localHash}" > ${remotePath}/.lockhash`);
         }
-
-        this.log('🔨 Reconstruyendo módulos nativos en el servidor...', 'info');
-        const rebuildCmd = `${envBypass} (${packageManager} rebuild || npm rebuild --update-binary || npm rebuild --build-from-source || echo '⚠️ Advertencia en rebuild')`;
-        await ssh.execCommand(`cd ${remotePath} && ${finalRemoteLoader} && ${rebuildCmd}`);
-
-        await ssh.execCommand(`echo "${localHash}" > ${remotePath}/.lockhash`);
       }
 
       // 5. Entorno y Reinicio
@@ -352,3 +457,6 @@ class NuxtExecutor {
 }
 
 module.exports = NuxtExecutor;
+module.exports.NuxtExecutor = NuxtExecutor;
+module.exports.getNativePackagesToRebuild = getNativePackagesToRebuild;
+module.exports.KNOWN_NATIVE_PACKAGES = KNOWN_NATIVE_PACKAGES;

@@ -52,7 +52,8 @@ class DeployInitCommand extends Command {
       advanced: {
         usePm2: true,
         optimizeNpm: true,
-        localNpmInstall: false
+        localNpmInstall: false,
+        ...(flags.type === 'nuxt' ? { nodeVersion: '20', serverInstall: true } : {})
       },
       env: {
         NODE_ENV: env,
