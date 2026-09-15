@@ -1,10 +1,16 @@
 // src/commands/credential/remove.js
 const { Command } = require('@oclif/command');
 const inquirer = require('inquirer');
-const keytar = require('keytar');
 const chalk = require('chalk');
 const fs = require('fs');
 const path = require('path');
+
+let keytar;
+try {
+  keytar = require('keytar');
+} catch (e) {
+  keytar = null;
+}
 
 class CredentialRemoveCommand extends Command {
   async run() {
@@ -53,8 +59,10 @@ class CredentialRemoveCommand extends Command {
 
     const [aliasName, user] = keyToDelete.split(':');
 
-    // Eliminar de Keytar
-    await keytar.deletePassword('koram', keyToDelete);
+    // Eliminar de Keytar (si está disponible)
+    if (keytar) {
+      await keytar.deletePassword('koram', keyToDelete);
+    }
 
     // Eliminar del JSON
     delete allCreds[keyToDelete];
