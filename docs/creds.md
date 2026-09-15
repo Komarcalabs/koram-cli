@@ -82,6 +82,13 @@ koram creds:show mi-s3
 ```
 *Si la credencial es de tipo S3, mostrará los encabezados "AWS Access Key ID", "AWS Secret Key" y "Región por defecto" de forma limpia.*
 
+### Actualizar Credencial (`koram creds:update`)
+Inicia un asistente interactivo para modificar los datos de una credencial existente (usuario, host o contraseña) buscando por su alias.
+```bash
+koram creds:update <alias>
+```
+*Si dejas la contraseña en blanco durante el asistente, se mantendrá la contraseña actual guardada en la bóveda.*
+
 ### Eliminar Credenciales (`koram creds:rm`)
 Borra físicamente del llavero criptográfico y del archivo de metadatos la credencial indicada por su alias:
 ```bash
