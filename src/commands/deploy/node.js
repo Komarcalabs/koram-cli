@@ -115,6 +115,17 @@ class DeployNodeCommand extends Command {
         if (cloneResult.stdout) console.log(cloneResult.stdout);
         if (cloneResult.stderr) console.error(cloneResult.stderr);
       } else {
+        // Sincronizar remote origin si cambió la URL o token en la configuración
+        try {
+          const checkRemote = await ssh.execCommand('git config --get remote.origin.url', { cwd: `${remotePath}/source` });
+          const currentRemote = checkRemote.stdout.trim();
+          if (currentRemote && currentRemote !== repo) {
+            console.log(chalk.yellow(`🔄 Cambio detectado en la URL del repositorio (token o ruta modificada).`));
+            await ssh.execCommand(`git remote set-url origin "${repo}"`, { cwd: `${remotePath}/source` });
+            console.log(chalk.green(`✅ Remote 'origin' actualizado exitosamente en el servidor.`));
+          }
+        } catch (e) {}
+
         console.log(chalk.blue(`🔹 Actualizando código vía Git (${ref})...`));
         const gitCommands = [
           `cd "${remotePath}/source"`,

@@ -9,6 +9,11 @@ const inquirer = require('inquirer');
 const { spawn } = require('child_process');
 const os = require('os');
 const { getCredentialByKey, selectKoramConfig } = require('../../utils/index');
+function maskRepoUrl(url) {
+  if (!url) return '';
+  return url.replace(/(https?:\/\/[^:]+:)([^@]+)(@)/, '$1***$3');
+}
+
 
 class DeployCommand extends Command {
   async run() {
@@ -114,7 +119,7 @@ class DeployCommand extends Command {
             : 'modo nativo (fallback node-ssh)';
       console.log(chalk.cyan(`🚀 Ejecutando despliegue de PM2 en ${reason}...`));
       try {
-        await this.executeNativeDeploy(configFile, env, credentials, extraParams, logPath, logFile);
+        await this.executeNativeDeploy(configFile, env, credentials, extraParams, logPath, logFile, koramConfig, rcPath);
         logFile.end();
         console.log(chalk.green('✅ Deploy completado con éxito'));
       } catch (err) {
@@ -171,7 +176,7 @@ class DeployCommand extends Command {
     });
   }
 
-  async executeNativeDeploy(configFile, env, credentials, extraParams, logPath, logFile) {
+  async executeNativeDeploy(configFile, env, credentials, extraParams, logPath, logFile, koramConfig = null, rcPath = null) {
     const { NodeSSH } = require('node-ssh');
     const ssh = new NodeSSH();
 
@@ -212,8 +217,9 @@ class DeployCommand extends Command {
     console.log(chalk.green(`✅ Conexión SSH nativa establecida.`));
 
     const remotePath = configFile.path;
-    const repo = configFile.repo;
-    const ref = configFile.ref || 'origin/master';
+    // Prioridad de repositorio: .koram-rc.<env>.json tiene precedencia sobre ecosystem
+    const repo = koramConfig?.deploy?.repository || configFile.repo;
+    const ref = koramConfig?.deploy?.branch ? `origin/${koramConfig.deploy.branch}` : (configFile.ref || 'origin/master');
     const preSetup = configFile['pre-setup'];
     const postSetup = configFile['post-setup'];
     const preDeploy = configFile['pre-deploy'];
@@ -258,7 +264,7 @@ class DeployCommand extends Command {
 
       // 1.3 Clonar repositorio solo si aún no existe
       if (isGitMissing) {
-        console.log(chalk.blue(`🔹 Clonando repositorio ${repo} en ${remotePath}/source...`));
+        console.log(chalk.blue(`🔹 Clonando repositorio ${maskRepoUrl(repo)} en ${remotePath}/source...`));
         const cloneResult = await ssh.execCommand(`git clone "${repo}" "${remotePath}/source"`, {
           cwd: remotePath,
           onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
@@ -291,6 +297,27 @@ class DeployCommand extends Command {
       }
 
       console.log(chalk.green(`✅ Setup finalizado. Continuando automáticamente con el despliegue (update)...\n`));
+    } else {
+      // 1.6 Sincronización automática de remote 'origin' si cambió el token o la URL en los archivos locales
+      try {
+        const getRemoteResult = await ssh.execCommand('git config --get remote.origin.url', { cwd: `${remotePath}/source` });
+        const currentOrigin = getRemoteResult.stdout.trim();
+
+        if (currentOrigin && currentOrigin !== repo) {
+          console.log(chalk.yellow(`🔄 Se detectó un cambio en la URL del repositorio remoto (actualización de token o ruta):`));
+          console.log(chalk.gray(`   Servidor anterior: ${maskRepoUrl(currentOrigin)}`));
+          console.log(chalk.cyan(`   Nueva configuración: ${maskRepoUrl(repo)}`));
+          
+          const updateRemoteResult = await ssh.execCommand(`git remote set-url origin "${repo}"`, { cwd: `${remotePath}/source` });
+          if (updateRemoteResult.code === 0) {
+            console.log(chalk.green(`✅ Remote 'origin' actualizado automáticamente en el servidor.\n`));
+          } else {
+            console.log(chalk.red(`❌ No se pudo actualizar el remote en el servidor: ${updateRemoteResult.stderr}`));
+          }
+        }
+      } catch (remoteErr) {
+        // Continuar si falla la lectura previa
+      }
     }
 
     // 2. Ejecutar comandos de despliegue / actualización (Update)
@@ -325,18 +352,78 @@ class DeployCommand extends Command {
       `echo $(git rev-parse HEAD) >> "${remotePath}/.deploys"`
     ].join(' && ');
 
-    const gitResult = await ssh.execCommand(gitCommands, {
+    let gitResult = await ssh.execCommand(gitCommands, {
       onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
       onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
     });
     if (gitResult.stdout) logFile.write(gitResult.stdout);
     if (gitResult.stderr) logFile.write(gitResult.stderr);
 
+    // 2.3 Manejo inteligente de expiración de token o error de autenticación Git
+    const isAuthError = (gitResult.stderr && (
+      gitResult.stderr.includes('Authentication failed') ||
+      gitResult.stderr.includes('HTTP 401') ||
+      gitResult.stderr.includes('HTTP 403') ||
+      gitResult.stderr.includes('fatal: could not read Username') ||
+      gitResult.stderr.includes('Permission denied')
+    ));
+
+    if (gitResult.code !== 0 && isAuthError) {
+      console.log(chalk.red(`\n🔑 Error de Autenticación Git: El token en la URL del repositorio ha expirado o no tiene permisos.\n`));
+
+      if (process.stdin.isTTY) {
+        const { updateToken } = await inquirer.prompt([{
+          type: 'confirm',
+          name: 'updateToken',
+          message: '¿Deseas ingresar una nueva URL con el token actualizado ahora mismo para continuar?',
+          default: true
+        }]);
+
+        if (updateToken) {
+          const { newRepoUrl } = await inquirer.prompt([{
+            type: 'input',
+            name: 'newRepoUrl',
+            message: 'Ingresa la nueva URL completa del repositorio (con el nuevo token):',
+            default: repo,
+            validate: input => input.trim().length > 0 || 'Por favor ingresa una URL válida.'
+          }]);
+
+          const finalUrl = newRepoUrl.trim();
+          console.log(chalk.blue(`🔹 Actualizando remote 'origin' en el servidor remoto...`));
+          await ssh.execCommand(`git remote set-url origin "${finalUrl}"`, { cwd: `${remotePath}/source` });
+          console.log(chalk.green(`✅ Remote 'origin' actualizado en el servidor.`));
+
+          // Actualizar archivo local .koram-rc.<env>.json
+          if (rcPath && koramConfig) {
+            try {
+              if (!koramConfig.deploy) koramConfig.deploy = {};
+              koramConfig.deploy.repository = finalUrl;
+              fs.writeFileSync(rcPath, JSON.stringify(koramConfig, null, 2), 'utf8');
+              console.log(chalk.green(`✅ Archivo local ${path.basename(rcPath)} actualizado con el nuevo token.`));
+            } catch (writeErr) {
+              console.log(chalk.yellow(`⚠️ No se pudo guardar en ${path.basename(rcPath)}: ${writeErr.message}`));
+            }
+          }
+
+          console.log(chalk.blue(`🔹 Reintentando actualización de Git con el nuevo token...`));
+          gitResult = await ssh.execCommand(gitCommands, {
+            onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
+            onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
+          });
+          if (gitResult.stdout) logFile.write(gitResult.stdout);
+          if (gitResult.stderr) logFile.write(gitResult.stderr);
+        }
+      } else {
+        console.log(chalk.yellow(`💡 Solución: Actualiza el campo "repository" en tu archivo .koram-rc.${env}.json o "repo" en ecosystem.config.js.`));
+        console.log(chalk.yellow(`   Koram sincronizará automáticamente el nuevo token al servidor en el siguiente despliegue.\n`));
+      }
+    }
+
     if (gitResult.code !== 0) {
       throw new Error(`Los comandos de Git fallaron con código ${gitResult.code}`);
     }
 
-    // 2.3 Ejecutar comandos post-deploy cargando la shell de login para nvm/npm
+    // 2.4 Ejecutar comandos post-deploy cargando la shell de login para nvm/npm
     if (postDeploy) {
       console.log(chalk.blue(`🔹 Ejecutando comandos Post-Deploy en el servidor...`));
       logFile.write(`--- Post-Deploy ---\n`);
