@@ -27,8 +27,9 @@ class ReverseTunnelCommand extends Command {
         credentials = await getCredentialByKey(alias);
       }
 
-      const { password, user, host } = credentials;
-      const useSSHKey = flags.sshKey || false;
+      const { password, user, host, authType, keyPath } = credentials;
+      const isKeyAuth = authType === 'key' || !!keyPath;
+      const useSSHKey = flags.sshKey || isKeyAuth;
 
       // Preguntar puertos si no se pasan por flags
       let remotePort = flags.remotePort;
@@ -61,9 +62,11 @@ class ReverseTunnelCommand extends Command {
         remotePort = Number(answers.remotePort);
       }
 
-      let sshKeyPath = null;
+      let sshKeyPath = keyPath || configFile.server?.sshKey || null;
+      if (sshKeyPath) {
+        sshKeyPath = sshKeyPath.replace(/^~(?=$|\/|\\)/, process.env.HOME || '');
+      }
       if (useSSHKey) {
-        sshKeyPath = configFile.server?.sshKey || null;
         if (!sshKeyPath && !process.env.SSH_AUTH_SOCK) {
           this.log(chalk.red(`❌ No se encontró la SSH key para alias "${alias}"`));
           return;

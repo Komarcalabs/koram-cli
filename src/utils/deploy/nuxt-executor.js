@@ -61,11 +61,20 @@ class NuxtExecutor {
 
     // --- PARALELIZACIÓN SSH ---
     let vaultPassword = config.server.password_plain || config.server.password;
-    if (!vaultPassword) {
-      try {
-        const creds = await getCredentialByKey(null, config.server.user, config.server.host);
-        if (creds && creds.password) vaultPassword = creds.password;
-      } catch (e) { }
+    let vaultKeyPath = config.server.sshKey || null;
+    let vaultPassphrase = null;
+
+    try {
+      const creds = await getCredentialByKey(null, config.server.user, config.server.host);
+      if (creds) {
+        if (creds.password) vaultPassword = creds.password;
+        if (creds.keyPath) vaultKeyPath = creds.keyPath;
+        if (creds.passphrase) vaultPassphrase = creds.passphrase;
+      }
+    } catch (e) { }
+
+    if (vaultKeyPath) {
+      vaultKeyPath = vaultKeyPath.replace(/^~(?=$|\/|\\)/, process.env.HOME || '');
     }
 
     const sshPromise = (async () => {
@@ -77,7 +86,10 @@ class NuxtExecutor {
           username: config.server.user,
           tryKeyboard: true,
         };
-        if (vaultPassword) {
+        if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
+          sshConfig.privateKey = fs.readFileSync(vaultKeyPath);
+          if (vaultPassphrase) sshConfig.passphrase = vaultPassphrase;
+        } else if (vaultPassword) {
           sshConfig.password = vaultPassword;
         }
         if (process.env.SSH_AUTH_SOCK) {
@@ -137,9 +149,10 @@ class NuxtExecutor {
       const potentialFiles = [outputDir, 'package.json', lockFile, 'public', 'static', 'ecosystem.config.js'];
       const filesToDeploy = potentialFiles.filter(f => fs.existsSync(path.join(projectRoot, f)));
 
+      const hasKey = vaultKeyPath && fs.existsSync(vaultKeyPath);
       let useRsync = hasRsync;
       const hasPassword = !!vaultPassword;
-      if (hasPassword && !hasSshPass) {
+      if (!hasKey && hasPassword && !hasSshPass) {
         useRsync = false;
         this.log('⚠️ Rsync requiere "sshpass" para autenticación por password. Usando Tar (Legacy).', 'info');
       }
@@ -150,10 +163,14 @@ class NuxtExecutor {
 
         await ssh.execCommand(`mkdir -p ${remotePath}`);
 
-        let rsyncBase = `rsync -az --delete --no-perms --no-owner --no-group -e "ssh -p ${config.server.port || 22} -o StrictHostKeyChecking=no"`;
+        let sshOpt = `-p ${config.server.port || 22} -o StrictHostKeyChecking=no`;
+        if (hasKey) {
+          sshOpt = `-i "${vaultKeyPath}" ${sshOpt}`;
+        }
+        let rsyncBase = `rsync -az --delete --no-perms --no-owner --no-group -e "ssh ${sshOpt}"`;
         const rsyncEnv = { ...process.env };
 
-        if (hasPassword) {
+        if (!hasKey && hasPassword) {
           rsyncBase = `sshpass -e ${rsyncBase}`;
           rsyncEnv.SSHPASS = vaultPassword;
         }

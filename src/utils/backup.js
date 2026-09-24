@@ -14,11 +14,22 @@ async function getBackupSshConnection(serverConfig, defaultServer) {
   }
 
   let vaultPassword = server.password_plain || server.password;
+  let vaultKeyPath = server.sshKey || null;
+  let vaultPassphrase = null;
+
   if (!vaultPassword) {
     try {
       const creds = await getCredentialByKey(null, server.user, server.host);
-      if (creds && creds.password) vaultPassword = creds.password;
+      if (creds) {
+        if (creds.password) vaultPassword = creds.password;
+        if (creds.keyPath) vaultKeyPath = creds.keyPath;
+        if (creds.passphrase) vaultPassphrase = creds.passphrase;
+      }
     } catch (e) { }
+  }
+
+  if (vaultKeyPath) {
+    vaultKeyPath = vaultKeyPath.replace(/^~(?=$|\/|\\)/, process.env.HOME || '');
   }
 
   const ssh = new NodeSSH();
@@ -30,14 +41,10 @@ async function getBackupSshConnection(serverConfig, defaultServer) {
     agent: process.env.SSH_AUTH_SOCK
   };
 
-  if (server.sshKey) {
-    const keyPath = server.sshKey.replace('~', process.env.HOME || process.env.USERPROFILE || '');
-    if (fs.existsSync(keyPath)) {
-      connectionOpts.privateKey = fs.readFileSync(keyPath);
-    }
-  }
-
-  if (vaultPassword) {
+  if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
+    connectionOpts.privateKey = fs.readFileSync(vaultKeyPath);
+    if (vaultPassphrase) connectionOpts.passphrase = vaultPassphrase;
+  } else if (vaultPassword) {
     connectionOpts.password = vaultPassword;
   }
 

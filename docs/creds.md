@@ -15,23 +15,53 @@ La seguridad de las contraseñas y llaves de acceso es crítica. Por ello, Koram
 ## 2. Comandos de la Bóveda
 
 ### A. Registrar Credenciales (`koram creds:add`)
-Guarda de forma segura los accesos para un servidor SSH o una cuenta de AWS S3.
+Guarda de forma segura los accesos para servidores SSH (con llave privada `.pem` o contraseña) o cuentas de AWS S3.
+
+#### Modo Asistente Interactivo (Recomendado):
+Si ejecutas el comando sin argumentos, Koram lanzará un asistente interactivo guiado:
 ```bash
-koram creds:add <alias> <usuario> [host/región] [flags]
+koram creds:add
+```
+*Te permitirá elegir el tipo de credencial (Llave SSH, Contraseña o AWS S3) y te guiará paso a paso.*
+
+#### Modo por Línea de Comandos:
+```bash
+# Servidor con Llave Privada SSH (.pem / id_rsa)
+koram creds:add <alias> <usuario> <host> --key <ruta-al-pem>
+
+# Servidor con Contraseña
+koram creds:add <alias> <usuario> <host>
+
+# Almacenamiento AWS S3
+koram creds:add <alias> <access-key> <region> --type s3
 ```
 
 #### Flags de `creds:add`
-* `-t, --type`: Tipo de credencial a guardar. Opciones: `server` (defecto) o `s3`.
+* `-k, --key`: Ruta al archivo local de llave privada SSH (`.pem`, `id_rsa`). Koram la copiará automáticamente a `~/.koram/keys/<alias>.pem` y le asignará permisos estrictos `0600`.
+* `--passphrase`: Passphrase de la llave SSH si está cifrada (opcional, se guarda de forma segura en Keytar).
+* `-t, --type`: Tipo de credencial a guardar. Opciones: `server`, `key` o `s3`.
 * `-f, --fallback`: Fuerza el almacenamiento en formato JSON plano en la ruta de usuario en lugar de usar el llavero criptográfico del sistema.
 
 ---
 
 ## 3. Mapeo de Tipos de Credenciales
 
-Para mantener el esquema simple, ligero e infinitamente compatible, Koram utiliza una estructura de metadatos dinámica basada en el parámetro `"type"`. Esto te permite registrar diferentes servicios usando las mismas variables técnicas pero visualizándolos con etiquetas personalizadas en consola:
+### Tipo 1: Servidores SSH con Llave Privada (`--key` / Recomendado)
+Koram gestiona un almacén seguro centralizado en `~/.koram/keys/` con permisos `0700` y `0600` para las llaves.
+* **Mapeo de Campos:**
+  * `<alias>` $\rightarrow$ Nombre legible para conectar (ej: `prod-aws`).
+  * `<usuario>` $\rightarrow$ Nombre de usuario SSH (ej: `ubuntu`).
+  * `[host]` $\rightarrow$ IP pública o dominio del servidor VPS.
+  * `--key` $\rightarrow$ Ruta local al archivo `.pem`.
+* **Ejemplo de Registro:**
+  ```bash
+  koram creds:add prod-aws ubuntu 54.21.32.10 --key ~/Downloads/mi-servidor.pem
+  ```
 
-### Tipo 1: Servidores SSH (`--type server` / Por Defecto)
-Se utiliza para las conexiones remotas de despliegue, túneles e infraestructura.
+---
+
+### Tipo 2: Servidores SSH con Contraseña (`--type server`)
+Se utiliza para conexiones remotas tradicionales basadas en contraseña.
 * **Mapeo de Campos:**
   * `<alias>` $\rightarrow$ Nombre legible para conectar (ej: `vps-produccion`).
   * `<usuario>` $\rightarrow$ Nombre de usuario SSH (ej: `root`).

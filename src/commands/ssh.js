@@ -30,16 +30,18 @@ class SshCommand extends Command {
         credentials = await getCredentialByKey(alias);
       }
 
-      const { password, user, host } = credentials;
-      const useSSHKey = flags.sshKey || false;
-      let sshKeyPath = null;
+      const { password, user, host, authType, keyPath, passphrase } = credentials;
+      const isKeyAuth = authType === 'key' || !!keyPath;
+      const useSSHKey = flags.sshKey || isKeyAuth;
+      let sshKeyPath = keyPath || configFile.server?.sshKey || null;
 
-      if (useSSHKey) {
-        sshKeyPath = configFile.server?.sshKey || null;
-        if (!sshKeyPath && !process.env.SSH_AUTH_SOCK) {
-          this.log(chalk.red(`❌ No se encontró la SSH key para alias "${alias}"`));
-          return;
-        }
+      if (sshKeyPath) {
+        sshKeyPath = sshKeyPath.replace(/^~(?=$|\/|\\)/, process.env.HOME || '');
+      }
+
+      if (useSSHKey && !sshKeyPath && !process.env.SSH_AUTH_SOCK) {
+        this.log(chalk.red(`❌ No se encontró la SSH key para alias "${alias}"`));
+        return;
       }
 
       const spinner = ora(`Iniciando conexión SSH a ${user}@${host}...`).start();
@@ -54,7 +56,7 @@ class SshCommand extends Command {
       if (useSSHKey && sshKeyPath) sshArgs.unshift('-i', sshKeyPath);
 
       spinner.stop();
-      this.log(chalk.magenta(`🚀 Conectando a ${user}@${host}...\n`));
+      this.log(chalk.magenta(`🚀 Conectando a ${user}@${host}${isKeyAuth ? ' (usando llave .pem)' : ''}...\n`));
 
       if (password && !useSSHKey) {
         // Intentar sshpass primero
@@ -76,6 +78,10 @@ class SshCommand extends Command {
       } else {
         // SSH normal o con llave
         const sshProcess = spawn('ssh', sshArgs, { stdio: 'inherit' });
+        sshProcess.on('error', (err) => {
+          this.log(chalk.yellow(`⚠️ Falló spawn nativo de SSH (${err.message}), intentando fallback ssh2...`));
+          this.connectWithSsh2({ user, host, password, keyPath: sshKeyPath, passphrase });
+        });
         sshProcess.on('exit', (code) => this.log(chalk.gray(`\n🔌 Conexión cerrada (ssh, código ${code})`)));
       }
 
@@ -84,7 +90,7 @@ class SshCommand extends Command {
     }
   }
 
-  connectWithSsh2({ user, host, password }) {
+  connectWithSsh2({ user, host, password, keyPath, passphrase }) {
     const conn = new Client();
     conn.on('ready', () => {
       console.log(chalk.green('✅ Conectado con ssh2 (fallback interactivo)\n'));
@@ -114,7 +120,16 @@ class SshCommand extends Command {
           conn.end();
         });
       });
-    }).connect({ host, port: 22, username: user, password });
+    });
+
+    const connConfig = { host, port: 22, username: user };
+    if (keyPath && fs.existsSync(keyPath)) {
+      connConfig.privateKey = fs.readFileSync(keyPath);
+      if (passphrase) connConfig.passphrase = passphrase;
+    } else if (password) {
+      connConfig.password = password;
+    }
+    conn.connect(connConfig);
   }
 }
 

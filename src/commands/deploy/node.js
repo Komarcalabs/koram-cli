@@ -85,15 +85,16 @@ class DeployNodeCommand extends Command {
       agent: process.env.SSH_AUTH_SOCK
     };
 
-    if (credentials.password) {
-      connectionOpts.password = credentials.password;
-    }
-
-    if (config.server?.sshKey) {
+    if (credentials.keyPath && fs.existsSync(credentials.keyPath)) {
+      connectionOpts.privateKey = fs.readFileSync(credentials.keyPath, 'utf8');
+      if (credentials.passphrase) connectionOpts.passphrase = credentials.passphrase;
+    } else if (config.server?.sshKey) {
       const resolvedKeyPath = config.server.sshKey.replace(/^~/, os.homedir());
       if (fs.existsSync(resolvedKeyPath)) {
         connectionOpts.privateKey = fs.readFileSync(resolvedKeyPath, 'utf8');
       }
+    } else if (credentials.password) {
+      connectionOpts.password = credentials.password;
     }
 
     try {

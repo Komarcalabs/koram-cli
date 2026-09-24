@@ -17,11 +17,21 @@ Koram cifra y almacena localmente las credenciales SSH y AWS S3.
   1. **Keytar:** En macOS, Windows o Linux con entorno gráfico, delega al llavero del OS.
   2. **Fallback:** En entornos sin llavero (WSL o contenedores), guarda en `~/.koram_credentials.json` (se puede forzar con `--fallback` o `-f`).
 * **Mapeo dinámico de credenciales según su tipo**:
-  * **Servidores SSH (`--type server` / default):**
+  * **Asistente Interactivo Universal:**
     ```bash
-    koram creds:add <alias> <usuario> [host] [puerto]
+    koram creds:add
     ```
-    *Ejemplo:* `koram creds:add vps-prod root 64.23.174.86 22` (solicitará la contraseña de forma interactiva).
+    Lanza el menú para seleccionar entre Servidor con Llave Privada SSH (.pem), Servidor con Contraseña o AWS S3.
+  * **Servidores SSH con Llave Privada (`--key` / Recomendado):**
+    ```bash
+    koram creds:add <alias> <usuario> <host> --key <ruta-al-pem>
+    ```
+    *Ejemplo:* `koram creds:add prod-aws ubuntu 54.21.32.10 --key ~/Downloads/mi-servidor.pem` (Koram copia la llave a `~/.koram/keys/<alias>.pem` y fija permisos estrictos `0600`).
+  * **Servidores SSH con Contraseña (`--type server`):**
+    ```bash
+    koram creds:add <alias> <usuario> [host]
+    ```
+    *Ejemplo:* `koram creds:add vps-prod root 64.23.174.86` (solicitará la contraseña de forma interactiva).
   * **Almacenamiento AWS S3 (`--type s3`):**
     ```bash
     koram creds:add <alias> s3

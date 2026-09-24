@@ -62,11 +62,22 @@ class CredentialListCommand extends Command {
         password = meta.password;
       }
 
-      const typeDisplay = meta.type === 's3' ? chalk.yellow('AWS S3') : chalk.blue('SSH Server');
+      let typeDisplay = chalk.blue('SSH (Pass)');
+      if (meta.type === 's3') {
+        typeDisplay = chalk.yellow('AWS S3');
+      } else if (meta.authType === 'key' || meta.keyPath) {
+        typeDisplay = chalk.cyan('SSH (Key)');
+      }
+
       const row = [alias, user, meta.host || '-', typeDisplay, origen];
 
       if (flags.showPassword) {
-        row.push(password ? chalk.green(password) : chalk.red('No encontrada'));
+        if (meta.authType === 'key' || meta.keyPath) {
+          const keyLabel = meta.keyPath ? require('path').basename(meta.keyPath) : 'Llave SSH';
+          row.push(password ? chalk.green(`[Passphrase: ${password}]`) : chalk.gray(`[${keyLabel}]`));
+        } else {
+          row.push(password ? chalk.green(password) : chalk.red('No encontrada'));
+        }
       }
 
       table.push(row);

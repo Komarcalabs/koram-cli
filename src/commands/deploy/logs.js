@@ -83,12 +83,16 @@ class DeployLogsCommand extends Command {
             }
 
 
-            const { password, user, host } = credentials;
-            const useSSHKey = flags.sshKey || false;
-            let sshKeyPath = null;
+            const { password, user, host, authType, keyPath } = credentials;
+            const isKeyAuth = authType === 'key' || !!keyPath;
+            const useSSHKey = flags.sshKey || isKeyAuth;
+            let sshKeyPath = keyPath || configFile.server?.sshKey || null;
+
+            if (sshKeyPath) {
+                sshKeyPath = sshKeyPath.replace(/^~(?=$|\/|\\)/, process.env.HOME || '');
+            }
 
             if (useSSHKey) {
-                sshKeyPath = configFile.server?.sshKey || null;
                 if (!sshKeyPath && !process.env.SSH_AUTH_SOCK) {
                     return log.error(`No se encontró la SSH key para alias "${alias}"`);
                 }

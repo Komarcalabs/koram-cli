@@ -76,6 +76,8 @@ class CredsShowCommand extends Command {
     });
 
     const credentialType = allCreds[keyToUse].type || 'server';
+    const authType = allCreds[keyToUse].authType || (allCreds[keyToUse].keyPath ? 'key' : 'password');
+    const keyPath = allCreds[keyToUse].keyPath;
 
     if (credentialType === 's3') {
       table.push(
@@ -86,10 +88,31 @@ class CredsShowCommand extends Command {
         [chalk.blue('Región por defecto'), host || '-'],
         [chalk.blue('Origen'), origen]
       );
+    } else if (authType === 'key' || keyPath) {
+      let keyStatus = chalk.red('❌ Archivo no encontrado');
+      if (keyPath && fs.existsSync(keyPath)) {
+        try {
+          const stat = fs.statSync(keyPath);
+          const mode = (stat.mode & parseInt('777', 8)).toString(8);
+          keyStatus = chalk.green(`✔ Válida (chmod 0${mode})`);
+        } catch (e) {
+          keyStatus = chalk.green('✔ Existe');
+        }
+      }
+
+      table.push(
+        [chalk.blue('Alias'), aliasName],
+        [chalk.blue('Tipo'), chalk.cyan('SSH Server (Llave Privada)')],
+        [chalk.blue('Usuario SSH'), user],
+        [chalk.blue('Host / IP'), host],
+        [chalk.blue('Archivo Llave (.pem)'), `${keyPath || '-'} [${keyStatus}]`],
+        [chalk.blue('Passphrase Llave'), password ? chalk.green('✔ Configurada (protegida)') : chalk.gray('(Sin passphrase)')],
+        [chalk.blue('Origen Passphrase'), password ? origen : '-']
+      );
     } else {
       table.push(
         [chalk.blue('Alias'), aliasName],
-        [chalk.blue('Tipo'), chalk.blue('SSH Server')],
+        [chalk.blue('Tipo'), chalk.blue('SSH Server (Contraseña)')],
         [chalk.blue('Usuario SSH'), user],
         [chalk.blue('Host / IP'), host],
         [chalk.blue('Contraseña SSH'), password || chalk.red('(No guardada)')],

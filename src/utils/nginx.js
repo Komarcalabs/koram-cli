@@ -213,11 +213,22 @@ async function syncRemoteWebserver(ssh, configFile, env, logFn = console.log) {
     const { getCredentialByKey } = require('./index');
     
     let vaultPassword = webServer.password_plain || webServer.password;
+    let vaultKeyPath = webServer.sshKey || null;
+    let vaultPassphrase = null;
+
     if (!vaultPassword) {
       try {
         const creds = await getCredentialByKey(null, webServer.user, webServer.host);
-        if (creds && creds.password) vaultPassword = creds.password;
+        if (creds) {
+          if (creds.password) vaultPassword = creds.password;
+          if (creds.keyPath) vaultKeyPath = creds.keyPath;
+          if (creds.passphrase) vaultPassphrase = creds.passphrase;
+        }
       } catch (e) { }
+    }
+
+    if (vaultKeyPath) {
+      vaultKeyPath = vaultKeyPath.replace(/^~(?=$|\/|\\)/, process.env.HOME || '');
     }
 
     const connectionOpts = {
@@ -228,14 +239,10 @@ async function syncRemoteWebserver(ssh, configFile, env, logFn = console.log) {
       agent: process.env.SSH_AUTH_SOCK
     };
 
-    if (webServer.sshKey) {
-      const keyPath = webServer.sshKey.replace('~', process.env.HOME || process.env.USERPROFILE || '');
-      if (fs.existsSync(keyPath)) {
-        connectionOpts.privateKey = fs.readFileSync(keyPath);
-      }
-    }
-
-    if (vaultPassword) {
+    if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
+      connectionOpts.privateKey = fs.readFileSync(vaultKeyPath);
+      if (vaultPassphrase) connectionOpts.passphrase = vaultPassphrase;
+    } else if (vaultPassword) {
       connectionOpts.password = vaultPassword;
     }
 

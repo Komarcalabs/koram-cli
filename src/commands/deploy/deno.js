@@ -60,13 +60,26 @@ class InfraDeployCommand extends Command {
     // 🔌 Conectar vía SSH
     const ssh = new NodeSSH();
     this.log(`🔌 Conectando a ${server.user}@${server.host}...`);
-    await ssh.connect({
+
+    const denoKeyPath = credentials?.keyPath || server.sshKey;
+    const resolvedDenoKey = denoKeyPath ? denoKeyPath.replace('~', process.env.HOME) : null;
+
+    const denoConnOpts = {
       host: server.host,
       username: server.user,
       port: server.port || 22,
-      password: credentials.password,
-      privateKey: server.sshKey ? fs.readFileSync(server.sshKey.replace('~', process.env.HOME)) : undefined,
-    });
+      tryKeyboard: true,
+      agent: process.env.SSH_AUTH_SOCK
+    };
+
+    if (resolvedDenoKey && fs.existsSync(resolvedDenoKey)) {
+      denoConnOpts.privateKey = fs.readFileSync(resolvedDenoKey);
+      if (credentials?.passphrase) denoConnOpts.passphrase = credentials.passphrase;
+    } else if (credentials?.password) {
+      denoConnOpts.password = credentials.password;
+    }
+
+    await ssh.connect(denoConnOpts);
 
     this.log('📂 Creando directorio de deploy...');
     await ssh.execCommand(`mkdir -p ${deploy.path}`);

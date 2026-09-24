@@ -107,16 +107,19 @@ class DeployCommand extends Command {
     //   porque pm2 deploy lanza múltiples comandos SSH secuenciales y sshpass solo suministra la clave al primero (falla código 5).
     // - Si no hay sshpass en el sistema.
     // - Si no hay PM2 instalado localmente.
-    const useNativeDeploy = flags.native || (password && !flags.sshKey) || !hasSshPass || !hasLocalPm2;
+    const hasKey = credentials?.authType === 'key' || !!credentials?.keyPath;
+    const useNativeDeploy = flags.native || hasKey || (password && !flags.sshKey) || !hasSshPass || !hasLocalPm2;
 
     if (useNativeDeploy) {
       const reason = flags.native
         ? 'modo nativo solicitado (--native)'
-        : (password && !flags.sshKey)
-          ? 'modo nativo seguro con credenciales de bóveda (node-ssh)'
-          : !hasLocalPm2
-            ? 'modo nativo (PM2 no está instalado localmente)'
-            : 'modo nativo (fallback node-ssh)';
+        : hasKey
+          ? 'modo nativo seguro con llave SSH (.pem)'
+          : (password && !flags.sshKey)
+            ? 'modo nativo seguro con credenciales de bóveda (node-ssh)'
+            : !hasLocalPm2
+              ? 'modo nativo (PM2 no está instalado localmente)'
+              : 'modo nativo (fallback node-ssh)';
       console.log(chalk.cyan(`🚀 Ejecutando despliegue de PM2 en ${reason}...`));
       try {
         await this.executeNativeDeploy(configFile, env, credentials, extraParams, logPath, logFile, koramConfig, rcPath);
@@ -201,15 +204,16 @@ class DeployCommand extends Command {
       agent: process.env.SSH_AUTH_SOCK
     };
 
-    if (credentials.password) {
-      connectionOpts.password = credentials.password;
-    }
-
-    if (configFile.key) {
+    if (credentials.keyPath && fs.existsSync(credentials.keyPath)) {
+      connectionOpts.privateKey = fs.readFileSync(credentials.keyPath, 'utf8');
+      if (credentials.passphrase) connectionOpts.passphrase = credentials.passphrase;
+    } else if (configFile.key) {
       const resolvedKeyPath = configFile.key.replace(/^~/, os.homedir());
       if (fs.existsSync(resolvedKeyPath)) {
         connectionOpts.privateKey = fs.readFileSync(resolvedKeyPath, 'utf8');
       }
+    } else if (credentials.password) {
+      connectionOpts.password = credentials.password;
     }
 
     console.log(chalk.cyan(`🔑 Conectando vía SSH nativo (node-ssh) a ${connectionOpts.username}@${connectionOpts.host}...`));

@@ -180,17 +180,42 @@ module.exports.getCredentialByKey = async function (alias, username, hostname) {
         origen = chalk.yellow('fallback ⚠️');
     }
 
+    const credData = allCreds[keyToUse] || {};
+    let keyPath = credData.keyPath || null;
+    if (keyPath) {
+        keyPath = keyPath.replace(/^~(?=$|\/|\\)/, os.homedir());
+    }
+
+    const authType = credData.authType || (keyPath ? 'key' : 'password');
+
+    // Asegurar permisos 0600 en el archivo de llave si existe
+    if (keyPath && fs.existsSync(keyPath)) {
+        try {
+            fs.chmodSync(keyPath, 0o600);
+        } catch (e) { }
+    }
+
     return {
         alias: aliasName,
         user,
         host,
         password,
         origen,
-        type: allCreds[keyToUse].type || 'server',
-        accessKeyId: allCreds[keyToUse].accessKeyId || undefined,
-        region: allCreds[keyToUse].region || undefined
+        type: credData.type || 'server',
+        authType,
+        keyPath,
+        passphrase: authType === 'key' ? password : null,
+        privateKey: keyPath && fs.existsSync(keyPath) ? fs.readFileSync(keyPath) : null,
+        accessKeyId: credData.accessKeyId || undefined,
+        region: credData.region || undefined
     };
 };
+
+const keysUtils = require('./keys');
+module.exports.getKoramKeysDir = keysUtils.getKoramKeysDir;
+module.exports.ensureKoramKeysDir = keysUtils.ensureKoramKeysDir;
+module.exports.storeKoramKey = keysUtils.storeKoramKey;
+module.exports.removeKoramKey = keysUtils.removeKoramKey;
 
 /**
  * Asegura que el entorno de Python exista y sea compatible (>= 3.7).

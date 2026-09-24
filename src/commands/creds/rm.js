@@ -58,6 +58,13 @@ class CredentialRemoveCommand extends Command {
     }
 
     const [aliasName, user] = keyToDelete.split(':');
+    const targetCred = allCreds[keyToDelete];
+
+    // Eliminar llave privada de ~/.koram/keys si aplica
+    if (targetCred && targetCred.keyPath) {
+      const { removeKoramKey } = require('../../utils/keys');
+      removeKoramKey(targetCred.keyPath);
+    }
 
     // Eliminar de Keytar (si está disponible)
     if (keytar) {

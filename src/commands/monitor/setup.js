@@ -84,12 +84,22 @@ class SetupCommand extends Command {
             const ssh = new NodeSSH();
             const spinner = ora('Conectando al servidor remoto...').start();
 
+            const connOpts = {
+                host: credentials.host,
+                username: credentials.user,
+                tryKeyboard: true,
+                agent: process.env.SSH_AUTH_SOCK
+            };
+
+            if (credentials.keyPath && fs.existsSync(credentials.keyPath)) {
+                connOpts.privateKey = fs.readFileSync(credentials.keyPath);
+                if (credentials.passphrase) connOpts.passphrase = credentials.passphrase;
+            } else if (credentials.password) {
+                connOpts.password = credentials.password;
+            }
+
             try {
-                await ssh.connect({
-                    host: credentials.host,
-                    username: credentials.user,
-                    password: credentials.password
-                });
+                await ssh.connect(connOpts);
                 spinner.succeed('Conectado con éxito.');
 
                 // 3. Verificar Versión de Node.js

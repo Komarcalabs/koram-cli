@@ -61,6 +61,8 @@ class CredentialUpdateCommand extends Command {
 
     const prompts = [];
     
+    const isKeyAuth = oldCred.authType === 'key' || !!oldCred.keyPath;
+
     if (type === 's3') {
       prompts.push({
         type: 'input',
@@ -78,6 +80,30 @@ class CredentialUpdateCommand extends Command {
         type: 'password',
         name: 'password',
         message: 'Nuevo AWS Secret Access Key (deja en blanco para mantener la actual):',
+        mask: '*'
+      });
+    } else if (isKeyAuth) {
+      prompts.push({
+        type: 'input',
+        name: 'user',
+        message: 'Usuario SSH:',
+        default: oldUser,
+      });
+      prompts.push({
+        type: 'input',
+        name: 'host',
+        message: 'IP/Hostname del servidor:',
+        default: oldCred.host,
+      });
+      prompts.push({
+        type: 'input',
+        name: 'newKeyPath',
+        message: `Ruta de nueva llave .pem (deja en blanco para mantener: ${oldCred.keyPath || 'actual'}):`,
+      });
+      prompts.push({
+        type: 'password',
+        name: 'password',
+        message: 'Nueva passphrase de la llave (deja en blanco para mantener la actual):',
         mask: '*'
       });
     } else {
@@ -107,6 +133,18 @@ class CredentialUpdateCommand extends Command {
     const newHost = answers.host.trim();
     const newPassword = answers.password;
 
+    let targetKeyPath = oldCred.keyPath;
+    if (answers.newKeyPath && answers.newKeyPath.trim()) {
+      const { storeKoramKey } = require('../../utils/keys');
+      try {
+        targetKeyPath = storeKoramKey(answers.newKeyPath.trim(), aliasName, newUser);
+        console.log(chalk.green(`✔ Nueva llave copiada con éxito a: ${targetKeyPath}`));
+      } catch (err) {
+        console.log(chalk.red(`❌ Error al actualizar la llave: ${err.message}`));
+        return;
+      }
+    }
+
     const newKey = `${aliasName}:${newUser}`;
 
     // Recuperar la contraseña antigua si no proporcionaron una nueva
@@ -135,6 +173,10 @@ class CredentialUpdateCommand extends Command {
 
     allCreds[newKey].type = type;
     allCreds[newKey].host = newHost;
+    allCreds[newKey].authType = isKeyAuth ? 'key' : (oldCred.authType || 'password');
+    if (isKeyAuth && targetKeyPath) {
+      allCreds[newKey].keyPath = targetKeyPath;
+    }
     
     if (type === 's3') {
       allCreds[newKey].accessKeyId = newUser;

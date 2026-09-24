@@ -176,11 +176,21 @@ class DeploySPACommand extends Command {
               const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
               let vaultPassword = config.server.password_plain || config.server.password;
+              let vaultKeyPath = config.server.sshKey || null;
+              let vaultPassphrase = null;
               if (!vaultPassword) {
                 try {
                   const creds = await getCredentialByKey(null, config.server.user, config.server.host);
-                  if (creds && creds.password) vaultPassword = creds.password;
+                  if (creds) {
+                    if (creds.password) vaultPassword = creds.password;
+                    if (creds.keyPath) vaultKeyPath = creds.keyPath;
+                    if (creds.passphrase) vaultPassphrase = creds.passphrase;
+                  }
                 } catch (e) { }
+              }
+
+              if (vaultKeyPath) {
+                vaultKeyPath = vaultKeyPath.replace(/^~(?=$|\/|\\)/, process.env.HOME || '');
               }
 
               const connectionOpts = {
@@ -191,14 +201,10 @@ class DeploySPACommand extends Command {
                 agent: process.env.SSH_AUTH_SOCK
               };
 
-              if (config.server.sshKey) {
-                const keyPath = config.server.sshKey.replace('~', process.env.HOME || process.env.USERPROFILE || '');
-                if (fs.existsSync(keyPath)) {
-                  connectionOpts.privateKey = fs.readFileSync(keyPath);
-                }
-              }
-
-              if (vaultPassword) {
+              if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
+                connectionOpts.privateKey = fs.readFileSync(vaultKeyPath);
+                if (vaultPassphrase) connectionOpts.passphrase = vaultPassphrase;
+              } else if (vaultPassword) {
                 connectionOpts.password = vaultPassword;
               }
 
@@ -253,26 +259,41 @@ class DeploySPACommand extends Command {
   async executeDeployment(config, ws) {
     const projectRoot = process.cwd();
 
-    // Recuperar password directamente de la bóveda
+    // Recuperar credenciales directamente de la bóveda
     let vaultPassword = config.server.password_plain || config.server.password;
-    if (!vaultPassword) {
-      try {
-        const creds = await getCredentialByKey(null, config.server.user, config.server.host);
-        if (creds && creds.password) vaultPassword = creds.password;
-      } catch (e) { }
+    let vaultKeyPath = config.server.sshKey || null;
+    let vaultPassphrase = null;
+
+    try {
+      const creds = await getCredentialByKey(null, config.server.user, config.server.host);
+      if (creds) {
+        if (creds.password) vaultPassword = creds.password;
+        if (creds.keyPath) vaultKeyPath = creds.keyPath;
+        if (creds.passphrase) vaultPassphrase = creds.passphrase;
+      }
+    } catch (e) { }
+
+    if (vaultKeyPath) {
+      vaultKeyPath = vaultKeyPath.replace(/^~(?=$|\/|\\)/, process.env.HOME || '');
     }
 
     // Iniciar SSH en paralelo
     const sshPromise = (async () => {
       const ssh = new NodeSSH();
-      await ssh.connect({
+      const sshConnOpts = {
         host: config.server.host,
         port: parseInt(config.server.port) || 22,
         username: config.server.user,
-        password: vaultPassword,
         tryKeyboard: true,
         agent: process.env.SSH_AUTH_SOCK
-      });
+      };
+      if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
+        sshConnOpts.privateKey = fs.readFileSync(vaultKeyPath);
+        if (vaultPassphrase) sshConnOpts.passphrase = vaultPassphrase;
+      } else if (vaultPassword) {
+        sshConnOpts.password = vaultPassword;
+      }
+      await ssh.connect(sshConnOpts);
       return ssh;
     })();
 
@@ -327,15 +348,20 @@ class DeploySPACommand extends Command {
 
       const hasRsync = execSync('which rsync || true').toString().trim() !== '';
       const hasSshPass = execSync('which sshpass || true').toString().trim() !== '';
-      const canUseRsync = hasRsync && (vaultPassword ? hasSshPass : true);
+      const hasKey = vaultKeyPath && fs.existsSync(vaultKeyPath);
+      const canUseRsync = hasRsync && (hasKey || (vaultPassword ? hasSshPass : true));
 
       if (canUseRsync) {
         this.logToWs(ws, "⚡ Sincronizando archivos (Rsync)...", "info");
         if (useAtomic) await ssh.execCommand(`mkdir -p ${fullRemoteDest}`);
 
-        let rsyncCmd = `rsync -avz --delete --no-perms --no-owner --no-group -e "ssh -p ${config.server.port || 22} -o StrictHostKeyChecking=no"`;
+        let sshOpt = `-p ${config.server.port || 22} -o StrictHostKeyChecking=no`;
+        if (hasKey) {
+          sshOpt = `-i "${vaultKeyPath}" ${sshOpt}`;
+        }
+        let rsyncCmd = `rsync -avz --delete --no-perms --no-owner --no-group -e "ssh ${sshOpt}"`;
         const rsyncEnv = { ...process.env };
-        if (vaultPassword) {
+        if (!hasKey && vaultPassword) {
           rsyncCmd = `sshpass -e ${rsyncCmd}`;
           rsyncEnv.SSHPASS = vaultPassword;
         }
