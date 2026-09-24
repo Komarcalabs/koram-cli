@@ -94,20 +94,24 @@ class DeployCommand extends Command {
 
     const { execSync } = require('child_process');
     const hasSshPass = execSync('which sshpass || true').toString().trim() !== '';
+    const hasLocalPm2 = execSync('which pm2 || true').toString().trim() !== '';
 
     // 1. Evaluar si se debe usar el motor nativo (node-ssh):
     // - Si se solicita explícitamente con --native (-n)
     // - Si se está usando contraseña de la bóveda (sin -k): sshpass no es compatible con pm2 deploy
     //   porque pm2 deploy lanza múltiples comandos SSH secuenciales y sshpass solo suministra la clave al primero (falla código 5).
     // - Si no hay sshpass en el sistema.
-    const useNativeDeploy = flags.native || (password && !flags.sshKey) || !hasSshPass;
+    // - Si no hay PM2 instalado localmente.
+    const useNativeDeploy = flags.native || (password && !flags.sshKey) || !hasSshPass || !hasLocalPm2;
 
     if (useNativeDeploy) {
       const reason = flags.native
         ? 'modo nativo solicitado (--native)'
         : (password && !flags.sshKey)
           ? 'modo nativo seguro con credenciales de bóveda (node-ssh)'
-          : 'modo nativo (fallback node-ssh)';
+          : !hasLocalPm2
+            ? 'modo nativo (PM2 no está instalado localmente)'
+            : 'modo nativo (fallback node-ssh)';
       console.log(chalk.cyan(`🚀 Ejecutando despliegue de PM2 en ${reason}...`));
       try {
         await this.executeNativeDeploy(configFile, env, credentials, extraParams, logPath, logFile);
@@ -171,6 +175,19 @@ class DeployCommand extends Command {
     const { NodeSSH } = require('node-ssh');
     const ssh = new NodeSSH();
 
+    // 0. Ejecutar pre-deploy-local si existe
+    const preDeployLocal = configFile['pre-deploy-local'];
+    if (preDeployLocal && preDeployLocal.trim() !== '') {
+      console.log(chalk.blue(`🔹 Ejecutando pre-deploy-local en la máquina local...`));
+      logFile.write(`--- Pre-Deploy Local ---\n`);
+      const { execSync } = require('child_process');
+      try {
+        execSync(preDeployLocal, { stdio: 'inherit' });
+      } catch (e) {
+        throw new Error(`pre-deploy-local falló: ${e.message}`);
+      }
+    }
+
     const connectionOpts = {
       host: credentials.host || configFile.host,
       port: parseInt(credentials.port || configFile.port) || 22,
@@ -197,61 +214,106 @@ class DeployCommand extends Command {
     const remotePath = configFile.path;
     const repo = configFile.repo;
     const ref = configFile.ref || 'origin/master';
+    const preSetup = configFile['pre-setup'];
+    const postSetup = configFile['post-setup'];
+    const preDeploy = configFile['pre-deploy'];
     const postDeploy = configFile['post-deploy'];
 
     const gitBranch = ref.split('/').pop() || 'master';
 
-    // Determinar si es "setup"
-    const isSetup = extraParams === 'setup';
+    // 1. Determinar si el servidor requiere setup (primera vez o solicitado explícitamente)
+    const checkGit = await ssh.execCommand(`[ -d "${remotePath}/source/.git" ] && echo "exists" || echo "missing"`);
+    const isGitMissing = checkGit.stdout.trim() !== 'exists';
+    const isExplicitSetup = extraParams === 'setup';
 
-    if (isSetup) {
-      console.log(chalk.blue(`🔹 Ejecutando setup del directorio remoto en ${remotePath}...`));
+    if (isGitMissing || isExplicitSetup) {
+      if (isGitMissing) {
+        console.log(chalk.yellow(`⚠️ El repositorio no está inicializado en el servidor (falta setup de PM2).`));
+        console.log(chalk.blue(`🔹 Ejecutando setup inicial automático en ${remotePath}...`));
+      } else {
+        console.log(chalk.blue(`🔹 Ejecutando setup en ${remotePath}...`));
+      }
       logFile.write(`--- Iniciando Setup Remoto ---\n`);
 
+      // 1.1 Ejecutar pre-setup si existe
+      if (preSetup) {
+        console.log(chalk.blue(`🔹 Ejecutando pre-setup en el servidor...`));
+        logFile.write(`--- Pre-Setup ---\n`);
+        const preSetupCmd = `bash -l -c "${preSetup}"`;
+        const preSetupResult = await ssh.execCommand(preSetupCmd, {
+          onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
+          onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
+        });
+        if (preSetupResult.stdout) logFile.write(preSetupResult.stdout);
+        if (preSetupResult.stderr) logFile.write(preSetupResult.stderr);
+        if (preSetupResult.code !== 0) {
+          throw new Error(`El comando de pre-setup falló con código ${preSetupResult.code}`);
+        }
+      }
+
+      // 1.2 Crear directorios base
       const mkdirResult = await ssh.execCommand(`mkdir -p "${remotePath}/shared" "${remotePath}/source"`, { cwd: '/' });
       if (mkdirResult.stdout) { process.stdout.write(mkdirResult.stdout); logFile.write(mkdirResult.stdout); }
       if (mkdirResult.stderr) { process.stderr.write(mkdirResult.stderr); logFile.write(mkdirResult.stderr); }
 
-      console.log(chalk.blue(`🔹 Clonando repositorio ${repo} en ${remotePath}/source...`));
-      const cloneResult = await ssh.execCommand(`git clone "${repo}" "${remotePath}/source"`, {
-        cwd: remotePath,
-        onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
-        onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
-      });
-      if (cloneResult.stdout) { process.stdout.write(cloneResult.stdout); logFile.write(cloneResult.stdout); }
-      if (cloneResult.stderr) { process.stderr.write(cloneResult.stderr); logFile.write(cloneResult.stderr); }
-      if (cloneResult.code !== 0) {
-        throw new Error(`Error al clonar el repositorio: código ${cloneResult.code}`);
+      // 1.3 Clonar repositorio solo si aún no existe
+      if (isGitMissing) {
+        console.log(chalk.blue(`🔹 Clonando repositorio ${repo} en ${remotePath}/source...`));
+        const cloneResult = await ssh.execCommand(`git clone "${repo}" "${remotePath}/source"`, {
+          cwd: remotePath,
+          onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
+          onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
+        });
+        if (cloneResult.stdout) logFile.write(cloneResult.stdout);
+        if (cloneResult.stderr) logFile.write(cloneResult.stderr);
+        if (cloneResult.code !== 0) {
+          throw new Error(`Error al clonar el repositorio: código ${cloneResult.code}`);
+        }
       }
+
+      // 1.4 Crear o actualizar symlink current -> source
       await ssh.execCommand(`ln -sfn "${remotePath}/source" "${remotePath}/current"`, { cwd: remotePath });
 
-      console.log(chalk.green(`✅ Setup finalizado en el servidor.`));
-      ssh.dispose();
-      return;
+      // 1.5 Ejecutar post-setup si existe
+      if (postSetup) {
+        console.log(chalk.blue(`🔹 Ejecutando post-setup en el servidor...`));
+        logFile.write(`--- Post-Setup ---\n`);
+        const postSetupCmd = `bash -l -c "cd \\"${remotePath}/source\\" && ${postSetup}"`;
+        const postSetupResult = await ssh.execCommand(postSetupCmd, {
+          onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
+          onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
+        });
+        if (postSetupResult.stdout) logFile.write(postSetupResult.stdout);
+        if (postSetupResult.stderr) logFile.write(postSetupResult.stderr);
+        if (postSetupResult.code !== 0) {
+          throw new Error(`El comando de post-setup falló con código ${postSetupResult.code}`);
+        }
+      }
+
+      console.log(chalk.green(`✅ Setup finalizado. Continuando automáticamente con el despliegue (update)...\n`));
     }
 
+    // 2. Ejecutar comandos de despliegue / actualización (Update)
     console.log(chalk.blue(`🔹 Iniciando despliegue de Git y comandos remotos...`));
     logFile.write(`--- Iniciando Despliegue Remoto ---\n`);
 
-    // 1. Verificar si la carpeta existe y tiene repositorio git.
-    const checkGit = await ssh.execCommand(`[ -d "${remotePath}/source/.git" ] && echo "exists" || echo "missing"`);
-    if (checkGit.stdout.trim() !== 'exists') {
-      console.log(chalk.yellow(`⚠️ El repositorio no está inicializado en el servidor. Ejecutando setup automático...`));
-      await ssh.execCommand(`mkdir -p "${remotePath}/shared" "${remotePath}/source"`, { cwd: '/' });
-      const cloneResult = await ssh.execCommand(`git clone "${repo}" "${remotePath}/source"`, {
-        cwd: remotePath,
+    // 2.1 Ejecutar pre-deploy si existe
+    if (preDeploy) {
+      console.log(chalk.blue(`🔹 Ejecutando pre-deploy en el servidor...`));
+      logFile.write(`--- Pre-Deploy ---\n`);
+      const preDeployCmd = `bash -l -c "cd \\"${remotePath}/source\\" && ${preDeploy}"`;
+      const preDeployResult = await ssh.execCommand(preDeployCmd, {
         onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
         onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
       });
-      if (cloneResult.stdout) { process.stdout.write(cloneResult.stdout); logFile.write(cloneResult.stdout); }
-      if (cloneResult.stderr) { process.stderr.write(cloneResult.stderr); logFile.write(cloneResult.stderr); }
-      if (cloneResult.code !== 0) {
-        throw new Error(`Error al clonar el repositorio: código ${cloneResult.code}`);
+      if (preDeployResult.stdout) logFile.write(preDeployResult.stdout);
+      if (preDeployResult.stderr) logFile.write(preDeployResult.stderr);
+      if (preDeployResult.code !== 0) {
+        throw new Error(`El comando de pre-deploy falló con código ${preDeployResult.code}`);
       }
-      await ssh.execCommand(`ln -sfn "${remotePath}/source" "${remotePath}/current"`, { cwd: remotePath });
     }
 
-    // 2. Ejecutar comandos git
+    // 2.2 Actualizar código vía Git
     console.log(chalk.blue(`🔹 Actualizando código vía Git (${ref})...`));
     const gitCommands = [
       `cd "${remotePath}/source"`,
@@ -267,24 +329,25 @@ class DeployCommand extends Command {
       onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
       onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
     });
-    if (gitResult.stdout) { process.stdout.write(gitResult.stdout); logFile.write(gitResult.stdout); }
-    if (gitResult.stderr) { process.stderr.write(gitResult.stderr); logFile.write(gitResult.stderr); }
+    if (gitResult.stdout) logFile.write(gitResult.stdout);
+    if (gitResult.stderr) logFile.write(gitResult.stderr);
 
     if (gitResult.code !== 0) {
       throw new Error(`Los comandos de Git fallaron con código ${gitResult.code}`);
     }
 
-    // 3. Ejecutar comandos post-deploy cargando la shell de login para nvm/npm
+    // 2.3 Ejecutar comandos post-deploy cargando la shell de login para nvm/npm
     if (postDeploy) {
       console.log(chalk.blue(`🔹 Ejecutando comandos Post-Deploy en el servidor...`));
-      const postDeployCmd = `bash -l -c "cd \"${remotePath}/source\" && ${postDeploy}"`;
+      logFile.write(`--- Post-Deploy ---\n`);
+      const postDeployCmd = `bash -l -c "cd \\"${remotePath}/source\\" && ${postDeploy}"`;
       
       const postResult = await ssh.execCommand(postDeployCmd, {
         onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
         onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
       });
-      if (postResult.stdout) { process.stdout.write(postResult.stdout); logFile.write(postResult.stdout); }
-      if (postResult.stderr) { process.stderr.write(postResult.stderr); logFile.write(postResult.stderr); }
+      if (postResult.stdout) logFile.write(postResult.stdout);
+      if (postResult.stderr) logFile.write(postResult.stderr);
 
       if (postResult.code !== 0) {
         throw new Error(`El script de post-deploy falló con código ${postResult.code}`);
@@ -295,7 +358,6 @@ class DeployCommand extends Command {
     ssh.dispose();
   }
 }
-
 DeployCommand.description = `Realiza un deploy automático usando alias de credenciales guardadas.
 Si se desea omitir la contraseña y usar la llave SSH cargada en el agente, usar --ssh-key o -k.
 Permite múltiples archivos ecosystem (.js, .cjs, .ts) y parámetros extra de PM2.`;
