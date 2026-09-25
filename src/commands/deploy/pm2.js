@@ -21,6 +21,20 @@ class DeployCommand extends Command {
     const alias = args.alias || '.';
     const projectRoot = process.cwd();
 
+    // Verificación de Git local (advertir si hay commits no subidos a GitLab/GitHub)
+    try {
+      const { execSync } = require('child_process');
+      const unpushed = execSync('git log @{u}..HEAD --oneline 2>/dev/null || true').toString().trim();
+      if (unpushed) {
+        const lines = unpushed.split('\n');
+        console.log(chalk.yellow(`\n⚠️  ADVERTENCIA DE GIT: Tienes ${lines.length} commit(s) local(es) SIN subir al repositorio remoto (git push):`));
+        lines.slice(0, 3).forEach(c => console.log(chalk.gray(`   • ${c}`)));
+        if (lines.length > 3) console.log(chalk.gray(`   ... y ${lines.length - 3} más`));
+        console.log(chalk.yellow(`   💡 El servidor solo puede desplegar lo que esté en GitLab/GitHub.`));
+        console.log(chalk.yellow(`   Si no has hecho 'git push', el servidor NO descargará tus cambios locales.\n`));
+      }
+    } catch (e) {}
+
     // 1. Determinar config de koram-rc y el entorno
     let rcPath = null;
     let env = flags.env || 'production';
@@ -346,6 +360,10 @@ class DeployCommand extends Command {
 
     // 2.2 Actualizar código vía Git
     console.log(chalk.blue(`🔹 Actualizando código vía Git (${ref})...`));
+    
+    // Consultar commit actual antes de fetch
+    const prevCommitRes = await ssh.execCommand('git rev-parse HEAD 2>/dev/null', { cwd: `${remotePath}/source` });
+    const prevCommit = prevCommitRes.stdout.trim();
     const gitCommands = [
       `cd "${remotePath}/source"`,
       `git stash || true`,
@@ -427,6 +445,15 @@ class DeployCommand extends Command {
       throw new Error(`Los comandos de Git fallaron con código ${gitResult.code}`);
     }
 
+    // Informar estado de la sincronización de Git
+    const newCommitRes = await ssh.execCommand('git rev-parse HEAD 2>/dev/null', { cwd: `${remotePath}/source` });
+    const newCommit = newCommitRes.stdout.trim();
+    if (prevCommit && newCommit && prevCommit === newCommit) {
+      console.log(chalk.cyan(`ℹ️  El servidor ya estaba en el último commit (${newCommit.substring(0, 8)}). No hubo nuevos commits.`));
+    } else if (newCommit) {
+      console.log(chalk.green(`📦 Servidor actualizado a commit ${newCommit.substring(0, 8)} (anterior: ${prevCommit ? prevCommit.substring(0, 8) : 'inicial'}).`));
+    }
+
     // 2.4 Ejecutar comandos post-deploy cargando la shell de login para nvm/npm
     if (postDeploy) {
       console.log(chalk.blue(`🔹 Ejecutando comandos Post-Deploy en el servidor...`));
@@ -445,7 +472,44 @@ class DeployCommand extends Command {
       }
     }
 
-    console.log(chalk.green(`✅ Despliegue nativo completado con éxito.`));
+    // 2.5 Verificación de salud de PM2 (Health Check)
+    console.log(chalk.blue(`🔍 Verificando estado de los procesos en PM2...`));
+    await new Promise(r => setTimeout(r, 2000));
+
+    const pm2ListRes = await ssh.execCommand('pm2 jlist 2>/dev/null');
+    try {
+      const pm2List = JSON.parse(pm2ListRes.stdout);
+      const appName = configFile.name || `${env}`;
+      const matchingProcs = pm2List.filter(p => p.name.includes(env) || p.name.includes('khipu'));
+
+      if (matchingProcs.length > 0) {
+        for (const proc of matchingProcs) {
+          const status = proc.pm2_env?.status;
+          const pid = proc.pid;
+          const memMb = Math.round((proc.monit?.memory || 0) / 1024 / 1024);
+          const uptimeSec = Math.round((Date.now() - (proc.pm2_env?.pm_uptime || Date.now())) / 1000);
+          const restarts = proc.pm2_env?.restart_time || 0;
+
+          if (status === 'online') {
+            console.log(chalk.green(`   ✅ Proceso PM2 [${proc.name}] (ID: ${proc.pm_id}) ➜ ONLINE (PID: ${pid}, RAM: ${memMb}MB, Uptime: ${uptimeSec}s, Reinicios: ${restarts})`));
+          } else if (status === 'errored') {
+            console.log(chalk.red(`   ❌ Proceso PM2 [${proc.name}] (ID: ${proc.pm_id}) ➜ ERRORED (Reinicios continuos: ${restarts})`));
+            const errLogRes = await ssh.execCommand(`tail -n 8 /root/.pm2/logs/${proc.name}-error.log 2>/dev/null`);
+            if (errLogRes.stdout) {
+              console.log(chalk.red(`   Último error registrado en logs:`));
+              console.log(chalk.gray(errLogRes.stdout));
+            }
+          } else {
+            console.log(chalk.yellow(`   ⚠️ Proceso PM2 [${proc.name}] (ID: ${proc.pm_id}) ➜ ${status}`));
+          }
+        }
+      }
+    } catch (e) {
+      const pm2Table = await ssh.execCommand('pm2 list | grep -E "id|online|errored|stopped" || true');
+      if (pm2Table.stdout) console.log(pm2Table.stdout);
+    }
+
+    console.log(chalk.green(`✅ Despliegue completado con éxito.`));
     ssh.dispose();
   }
 }
