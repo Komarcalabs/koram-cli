@@ -102,6 +102,10 @@ class DeployCommand extends Command {
       credentials = { user: configFile.user, host: configFile.host };
     }
 
+    if (configFile.user && credentials.user && configFile.user !== credentials.user) {
+      console.log(chalk.yellow(`⚠️ Advertencia: El usuario en ecosystem ("${configFile.user}") difiere del usuario SSH ("${credentials.user}"). Se usará "${credentials.user}".`));
+    }
+
     console.log(chalk.cyan(`📢 Entorno de Despliegue: ${chalk.bold(env.toUpperCase())}`));
     console.log(chalk.cyan(`🖥️  Servidor Destino: ${chalk.bold(credentials.user + '@' + credentials.host)}`));
 
@@ -235,6 +239,48 @@ class DeployCommand extends Command {
     console.log(chalk.green(`✅ Conexión SSH nativa establecida.`));
 
     const remotePath = configFile.path;
+
+    // 0.1 Pre-flight check: Verificar espacio en disco en el servidor
+    try {
+      const diskCheck = await ssh.execCommand(`df -P "${remotePath}" 2>/dev/null || df -P /`);
+      if (diskCheck.stdout) {
+        const lines = diskCheck.stdout.trim().split('\n');
+        if (lines.length > 1) {
+          const parts = lines[1].replace(/\s+/g, ' ').split(' ');
+          const availKb = parseInt(parts[3], 10);
+          const percentUsed = parseInt(parts[4]?.replace('%', ''), 10);
+          const availMb = Math.round(availKb / 1024);
+
+          if (percentUsed >= 90 || availMb < 500) {
+            console.log(chalk.yellow(`\n⚠️  ADVERTENCIA DE DISCO EN EL SERVIDOR:`));
+            console.log(chalk.yellow(`   Uso del disco: ${percentUsed}% | Espacio disponible: ${availMb} MB`));
+
+            const pm2LogsCheck = await ssh.execCommand('du -sm ~/.pm2/logs 2>/dev/null || true');
+            const pm2LogsMb = parseInt(pm2LogsCheck.stdout.trim().split(/\s+/)[0], 10) || 0;
+
+            if (pm2LogsMb > 200) {
+              console.log(chalk.yellow(`   Se detectaron ${pm2LogsMb} MB acumulados en logs de PM2 (~/.pm2/logs).`));
+              if (process.stdin.isTTY) {
+                const { flushLogs } = await inquirer.prompt([{
+                  type: 'confirm',
+                  name: 'flushLogs',
+                  message: '¿Deseas vaciar los logs de PM2 (pm2 flush) ahora para liberar espacio?',
+                  default: true
+                }]);
+                if (flushLogs) {
+                  await ssh.execCommand('pm2 flush || (bash -l -c "pm2 flush")');
+                  console.log(chalk.green(`   ✅ Logs de PM2 vaciados con éxito.\n`));
+                }
+              } else {
+                console.log(chalk.gray(`   💡 Sugerencia: Puedes vaciar logs de PM2 ejecutando 'pm2 flush' en el servidor.\n`));
+              }
+            }
+          }
+        }
+      }
+    } catch (diskErr) {
+      // Continuar si la comprobación previa falla
+    }
     // Prioridad de repositorio: .koram-rc.<env>.json tiene precedencia sobre ecosystem
     const repo = koramConfig?.deploy?.repository || configFile.repo;
     const ref = koramConfig?.deploy?.branch ? `origin/${koramConfig.deploy.branch}` : (configFile.ref || 'origin/master');
@@ -275,10 +321,29 @@ class DeployCommand extends Command {
         }
       }
 
-      // 1.2 Crear directorios base
-      const mkdirResult = await ssh.execCommand(`mkdir -p "${remotePath}/shared" "${remotePath}/source"`, { cwd: '/' });
+      // 1.2 Crear directorios base con validación de permisos y auto-elevación con sudo si es necesario
+      console.log(chalk.blue(`🔹 Verificando directorios base en ${remotePath}...`));
+      let mkdirResult = await ssh.execCommand(`mkdir -p "${remotePath}/shared" "${remotePath}/source"`, { cwd: '/' });
       if (mkdirResult.stdout) { process.stdout.write(mkdirResult.stdout); logFile.write(mkdirResult.stdout); }
       if (mkdirResult.stderr) { process.stderr.write(mkdirResult.stderr); logFile.write(mkdirResult.stderr); }
+
+      const isPermissionDenied = mkdirResult.code !== 0 || (mkdirResult.stderr && mkdirResult.stderr.toLowerCase().includes('permission denied'));
+      if (isPermissionDenied) {
+        logFile.write(`Fallo de permisos en mkdir: ${mkdirResult.stderr}\n`);
+        const sudoCheck = await ssh.execCommand('sudo -n true 2>/dev/null');
+        if (sudoCheck.code === 0) {
+          console.log(chalk.yellow(`⚠️ Permisos restringidos en ${remotePath}. Auto-corrigiendo directorios con sudo...`));
+          const sudoMkdir = await ssh.execCommand(`sudo mkdir -p "${remotePath}/shared" "${remotePath}/source" && sudo chown -R \$(whoami):\$(id -gn) "${remotePath}"`);
+          if (sudoMkdir.code === 0) {
+            console.log(chalk.green(`✅ Directorios creados y propiedad asignada a ${connectionOpts.username} mediante sudo.`));
+            logFile.write(`Directorios creados con sudo y chown aplicado a ${connectionOpts.username}.\n`);
+          } else {
+            throw new Error(`Fallo al crear directorios con sudo: ${sudoMkdir.stderr}`);
+          }
+        } else {
+          throw new Error(`Permisos insuficientes en el servidor para crear '${remotePath}': ${mkdirResult.stderr.trim() || 'Permission denied'}.\n💡 Solución: Ejecuta en el servidor remoto:\n   sudo mkdir -p "${remotePath}" && sudo chown -R ${connectionOpts.username}:${connectionOpts.username} "${remotePath}"`);
+        }
+      }
 
       // 1.3 Clonar repositorio solo si aún no existe
       if (isGitMissing) {

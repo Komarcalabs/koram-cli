@@ -207,8 +207,12 @@ async function syncRemoteWebserver(ssh, configFile, env, logFn = console.log) {
     (parseInt(appServer.port) || 22) !== (parseInt(webServer.port) || 22)
   );
 
-  if (isDifferent) {
-    logFn(`🔌 El servidor web Nginx reside en un host diferente (${webServer.user}@${webServer.host}). Conectando...`);
+  if (!activeSsh || isDifferent) {
+    if (isDifferent && activeSsh) {
+      logFn(`🔌 El servidor web Nginx reside en un host diferente (${webServer.user}@${webServer.host}). Conectando...`);
+    } else {
+      logFn(`🔌 Conectando al servidor web Nginx (${webServer.user}@${webServer.host})...`);
+    }
     const { NodeSSH } = require('node-ssh');
     const { getCredentialByKey } = require('./index');
     
@@ -290,7 +294,11 @@ async function syncRemoteWebserver(ssh, configFile, env, logFn = console.log) {
       try {
         const tempRemoteFile = `/tmp/nginx-temp-${Date.now()}.conf`;
         await activeSsh.putFile(tempLocalFile, tempRemoteFile);
-        await activeSsh.execCommand(`sudo mv ${tempRemoteFile} ${remoteConfPath}`);
+        await activeSsh.execCommand(`sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d`);
+        const mvRes = await activeSsh.execCommand(`sudo mv ${tempRemoteFile} ${remoteConfPath}`);
+        if (mvRes.code !== 0) {
+          throw new Error(`Error al mover archivo a ${remoteConfPath}: ${mvRes.stderr || mvRes.stdout}`);
+        }
         await activeSsh.execCommand(`sudo chmod 644 ${remoteConfPath}`);
       } finally {
         if (fs.existsSync(tempLocalFile)) {
@@ -353,12 +361,21 @@ async function syncRemoteWebserver(ssh, configFile, env, logFn = console.log) {
     logFn(`✅ Configuración final subida a ${remoteConfPath}`);
 
     // 4. Crear enlace simbólico definitivo si no existiera
+    await activeSsh.execCommand(`sudo mkdir -p /etc/nginx/sites-enabled /etc/nginx/conf.d`);
     await activeSsh.execCommand(`sudo ln -sf ${remoteConfPath} ${remoteEnabledPath}`);
     logFn(`✅ Enlace simbólico definitivo creado en ${remoteEnabledPath}`);
 
+    // 4.1 Soporte para servidores con include /etc/nginx/conf.d/*.conf
+    const confIncludeCheck = await activeSsh.execCommand(`grep -rn "sites-enabled" /etc/nginx/nginx.conf 2>/dev/null || echo "no"`);
+    if (confIncludeCheck.stdout.trim() === "no") {
+      const remoteConfDPath = `/etc/nginx/conf.d/${appName}-${env}.kr.conf`;
+      await activeSsh.execCommand(`sudo ln -sf ${remoteConfPath} ${remoteConfDPath}`);
+      logFn(`✅ Enlace simbólico adicional creado en ${remoteConfDPath} (servidor usa conf.d)`);
+    }
+
     // 5. Testear y recargar Nginx
     logFn(`🔄 Comprobando sintaxis y recargando Nginx...`);
-    const finalReload = await activeSsh.execCommand(`sudo nginx -t && sudo systemctl reload nginx`);
+    const finalReload = await activeSsh.execCommand(`sudo nginx -t && (sudo systemctl reload nginx || sudo service nginx reload)`);
     if (finalReload.code !== 0) {
       throw new Error(`Error al recargar Nginx: ${finalReload.stderr}`);
     }
