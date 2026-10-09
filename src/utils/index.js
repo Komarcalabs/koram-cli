@@ -277,3 +277,6 @@ module.exports.ensurePythonEnv = async function () {
 
     throw new Error('❌ No se puede continuar sin un entorno Python 3.7+ compatible.');
 };
+
+const { ensureRemoteDirectory } = require('./deploy/remote-dir');
+module.exports.ensureRemoteDirectory = ensureRemoteDirectory;

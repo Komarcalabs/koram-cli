@@ -5,6 +5,7 @@ const { NodeSSH } = require('node-ssh');
 const crypto = require('crypto');
 const chalk = require('chalk');
 const { getCredentialByKey } = require('../index');
+const { ensureRemoteDirectory } = require('./remote-dir');
 
 const KNOWN_NATIVE_PACKAGES = [
   'sqlite3',
@@ -136,13 +137,17 @@ class NuxtExecutor {
       const ssh = await sshPromise;
       this.log('✅ Conexión SSH establecida paralelamente.', 'success');
 
+      const remotePath = config.deploy.path;
+
+      // --- ASEGURAR DIRECTORIO REMOTO Y PERMISOS (AUTO-REPARACIÓN CON SUDO) ---
+      await ensureRemoteDirectory(ssh, remotePath, config.server.user, vaultPassword, (msg, lvl) => this.log(msg, lvl));
+
       // --- LIMPIEZA REMOTA ---
       this.log('🧹 Limpiando directorios de construcción remotos...', 'info');
-      const cleanupCmd = `mkdir -p ${config.deploy.path} && cd ${config.deploy.path} && rm -rf .output .nuxt .cache`;
+      const cleanupCmd = `cd ${remotePath} && rm -rf .output .nuxt .cache`;
       await ssh.execCommand(cleanupCmd);
 
       // --- ESTRATEGIA DE TRANSFERENCIA ULTRA-RÁPIDA ---
-      const remotePath = config.deploy.path;
       const hasRsync = execSync('which rsync || true').toString().trim() !== '';
       const hasSshPass = execSync('which sshpass || true').toString().trim() !== '';
 
@@ -161,8 +166,6 @@ class NuxtExecutor {
         this.log('⚡ Iniciando transferencia Delta (Rsync)...', 'info');
         const rsyncTarget = `${config.server.user}@${config.server.host}:${remotePath}/`;
 
-        await ssh.execCommand(`mkdir -p ${remotePath}`);
-
         let sshOpt = `-p ${config.server.port || 22} -o StrictHostKeyChecking=no`;
         if (hasKey) {
           sshOpt = `-i "${vaultKeyPath}" ${sshOpt}`;
@@ -178,13 +181,15 @@ class NuxtExecutor {
         for (const file of filesToDeploy) {
           this.log(`⬆️ Sincronizando ${file}...`, 'info');
           try {
-            const src = fs.statSync(file).isDirectory() ? `${file}/` : file;
-            const dest = fs.statSync(file).isDirectory() ? `${rsyncTarget}${file}/` : rsyncTarget;
-            if (fs.statSync(file).isDirectory()) await ssh.execCommand(`mkdir -p ${remotePath}/${file}`);
+            const isDir = fs.statSync(file).isDirectory();
+            const src = isDir ? `${file}/` : file;
+            const dest = isDir ? `${rsyncTarget}${file}/` : rsyncTarget;
+            if (isDir) await ssh.execCommand(`mkdir -p "${remotePath}/${file}"`);
 
             execSync(`${rsyncBase} ${src} ${dest}`, { cwd: projectRoot, env: rsyncEnv });
           } catch (e) {
-            this.log(`⚠️ Fallo rsync en ${file}: ${e.message}`, 'error');
+            this.log(`❌ Fallo rsync en ${file}: ${e.message}`, 'error');
+            throw new Error(`Fallo en la transferencia de "${file}" vía rsync: ${e.message}`);
           }
         }
       } else {

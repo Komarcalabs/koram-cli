@@ -10,7 +10,7 @@ const { NodeSSH } = require('node-ssh');
 const chalk = require('chalk');
 const glob = require('glob');
 const detect = require('detect-port').default;
-const { getCredentialByKey, selectKoramConfig } = require('../../utils/index');
+const { getCredentialByKey, selectKoramConfig, ensureRemoteDirectory } = require('../../utils/index');
 
 class DeploySPACommand extends Command {
   async run() {
@@ -334,11 +334,10 @@ class DeploySPACommand extends Command {
       const remotePath = config.deploy.path;
       const useAtomic = config.advanced?.atomicDeploys !== false;
 
-      // 3. Preparar Directorios Remotos
+      // 3. Preparar Directorios Remotos (Validación de permisos y auto-elevación con sudo)
+      await ensureRemoteDirectory(ssh, remotePath, config.server.user, vaultPassword, (msg, lvl) => this.logToWs(ws, msg, lvl));
       if (useAtomic) {
         await ssh.execCommand(`mkdir -p ${remotePath}/releases`);
-      } else {
-        await ssh.execCommand(`mkdir -p ${remotePath}`);
       }
 
       // 4. Transferencia (Rsync o Tar)
