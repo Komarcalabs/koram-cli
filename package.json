@@ -1,7 +1,7 @@
 {
   "name": "koram",
   "description": "Koram CLI — El toolkit sagrado de DevOps, automatización de infraestructura y despliegues desarrollado por Komarca Labs (Komarcalabs).",
-  "version": "1.5.5",
+  "version": "1.5.6",
   "author": "Dick Van Ocampo (Komarca Labs)",
   "bin": {
     "koram": "./bin/run"
