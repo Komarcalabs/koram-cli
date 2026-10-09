@@ -1,5 +1,5 @@
 const {expect} = require('chai')
-const {getNativePackagesToRebuild} = require('../../src/utils/deploy/nuxt-executor')
+const {getNativePackagesToRebuild, getNativePackagesWithVersions} = require('../../src/utils/deploy/nuxt-executor')
 
 describe('NuxtExecutor - Native Dependencies & Rebuild Detection', () => {
   it('should detect sqlite3 and better-sqlite3 in package.json dependencies', () => {
@@ -19,12 +19,14 @@ describe('NuxtExecutor - Native Dependencies & Rebuild Detection', () => {
       dependencies: {
         'better-sqlite3': '^9.4.0',
         sharp: '^0.33.0',
+        argon2: '^0.31.2',
         express: '^4.18.0',
       },
     })
     const detected = getNativePackagesToRebuild(pkgString)
     expect(detected).to.include('better-sqlite3')
     expect(detected).to.include('sharp')
+    expect(detected).to.include('argon2')
     expect(detected).to.not.include('express')
   })
 
@@ -45,5 +47,22 @@ describe('NuxtExecutor - Native Dependencies & Rebuild Detection', () => {
     const pkg = {dependencies: {vue: '^3.0.0', pinia: '^2.0.0'}}
     const detected = getNativePackagesToRebuild(pkg)
     expect(detected).to.deep.equal([])
+  })
+
+  it('should extract declared versions for native packages using getNativePackagesWithVersions', () => {
+    const pkg = {
+      dependencies: {
+        sharp: '0.32.6',
+        sqlite3: '6.0.1',
+        argon2: '0.31.2',
+        vue: '3.4.0'
+      }
+    }
+    const versions = getNativePackagesWithVersions(pkg)
+    expect(versions).to.deep.equal({
+      sharp: '0.32.6',
+      sqlite3: '6.0.1',
+      argon2: '0.31.2'
+    })
   })
 })
