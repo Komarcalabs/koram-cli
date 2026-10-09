@@ -1,24 +1,21 @@
-# Koram
+# Koram CLI — El Toolkit Sagrado de Komarca Labs
 
-## _El Toolkit Komarquino_
+[![npm version](https://img.shields.io/npm/v/koram.svg?style=flat-square&color=blue)](https://www.npmjs.com/package/koram)
+[![npm downloads](https://img.shields.io/npm/dm/koram.svg?style=flat-square&color=green)](https://www.npmjs.com/package/koram)
+[![GitHub Repository](https://img.shields.io/badge/GitHub-Komarcalabs%2Fkoram--cli-181717.svg?style=flat-square&logo=github)](https://github.com/Komarcalabs/koram-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-_"La herramienta sagrada del buen desarrollador"_
+> **Koram** (`koram-cli`) es el toolkit sagrado y oficial de DevOps, automatización de infraestructura y orquestación de despliegues desarrollado por **Komarca Labs** (**Komarcalabs**).
 
 ---
 
-## Presentación de Komarca Labs
+## 🏛️ Presentación de Komarca Labs (Komarcalabs)
 
 En los albores del código, los desarrolladores buscaban un artefacto que guiara sus proyectos, que iluminara el camino entre la complejidad y la creatividad.\
-**Komarca Labs** lo ha forjado:\
-**Koram**, la herramienta sagrada del buen Komarquino.
+**Komarca Labs** (**Komarcalabs**) lo ha forjado:\
+**Koram**, la herramienta sagrada del buen **Komarquino**.
 
----
-
-## Versión Sagrada
-
-```
-koram/1.3.8 darwin-arm64 node-v22.9.0
-```
+Koram centraliza en una sola herramienta de línea de comandos (CLI) el ciclo de vida operativo de tus aplicaciones: despliegues atómicos (Nuxt.js SSR, SPAs con Vite/React/Vue, PM2), gestión de servidores web Nginx con SSL automático por Let's Encrypt (IaC), monitoreo centralizado de VPS, túneles reversos sobre SSH y copias de seguridad automatizadas de bases de datos y archivos.
 
 ---
 
@@ -178,13 +175,20 @@ Antes de desplegar código o configurar infraestructura, guarda tus claves y con
 
 ---
 
-## El Legado Komarquino
+## 🌌 El Legado Komarquino
 
-Koram es la llave que conecta el conocimiento de los antiguos con la tecnología moderna.
+Koram es la llave que conecta el conocimiento de los antiguos con la tecnología moderna.  
 Solo los Komarquinos que lo dominen pueden desplegar proyectos con la precisión de un ritual ancestral.
 
 ---
 
-## Komarca Labs
+## 🏢 Komarca Labs (Komarcalabs)
 
 _"Forjando herramientas sagradas para desarrolladores legendarios"_
+
+* 📦 **Paquete oficial en npm:** [npmjs.com/package/koram](https://www.npmjs.com/package/koram)
+* 🐙 **Repositorio oficial en GitHub:** [github.com/Komarcalabs/koram-cli](https://github.com/Komarcalabs/koram-cli)
+* 🏢 **Organización:** [Komarca Labs (Komarcalabs)](https://github.com/Komarcalabs)
+* 💬 **Reporte de problemas y sugerencias:** [Issues](https://github.com/Komarcalabs/koram-cli/issues)
+* 🌐 **Keywords:** `koram`, `koram-cli`, `komarcalabs`, `komarca labs`, `komarquino`, `devops`, `despliegues`, `infraestructura`
+

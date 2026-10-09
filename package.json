@@ -1,12 +1,15 @@
 {
   "name": "koram",
-  "description": "El Toolkit sagrado del buen Komarquino",
-  "version": "1.5.4",
-  "author": "Dick Van Ocampo",
+  "description": "Koram CLI — El toolkit sagrado de DevOps, automatización de infraestructura y despliegues desarrollado por Komarca Labs (Komarcalabs).",
+  "version": "1.5.5",
+  "author": "Dick Van Ocampo (Komarca Labs)",
   "bin": {
     "koram": "./bin/run"
   },
-  "bugs": "https://github.com/Komarcalabs/koram-cli/issues",
+  "homepage": "https://github.com/Komarcalabs/koram-cli#readme",
+  "bugs": {
+    "url": "https://github.com/Komarcalabs/koram-cli/issues"
+  },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.621.0",
     "@oclif/command": "^1.8.0",
@@ -50,7 +53,25 @@
     "/agent-config"
   ],
   "keywords": [
-    "oclif"
+    "koram",
+    "koram-cli",
+    "komarca",
+    "komarcalabs",
+    "komarca labs",
+    "komarquino",
+    "devops",
+    "deploy",
+    "deployment",
+    "automation",
+    "infrastructure",
+    "iac",
+    "nginx",
+    "nuxt",
+    "pm2",
+    "spa",
+    "cli",
+    "oclif",
+    "monitoring"
   ],
   "license": "MIT",
   "main": "src/index.js",
@@ -61,7 +82,10 @@
       "@oclif/plugin-help"
     ]
   },
-  "repository": "https://github.com/Komarcalabs/koram-cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Komarcalabs/koram-cli.git"
+  },
   "scripts": {
     "postpack": "rm -f oclif.manifest.json",
     "lint": "eslint .",
