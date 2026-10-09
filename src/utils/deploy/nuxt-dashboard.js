@@ -106,7 +106,28 @@ class NuxtDashboard {
 
             try {
               const configPath = path.join(this.projectRoot, data.name);
-              const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+              let config = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {};
+
+              if (data.data) {
+                const serverData = { ...data.data.server };
+                delete serverData.password;
+                delete serverData.password_plain;
+
+                config = {
+                  ...config,
+                  name: data.data.name || config.name,
+                  packageManager: data.data.packageManager || config.packageManager || 'npm',
+                  server: { ...config.server, ...serverData },
+                  deploy: { ...config.deploy, ...data.data.deploy },
+                  env: { ...config.env, ...data.data.env },
+                  buildEnv: data.data.buildEnv || config.buildEnv,
+                  processes: data.data.processes || config.processes,
+                  advanced: { ...config.advanced, ...data.data.advanced }
+                };
+                fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+              }
+
+              config._envName = data.name.replace('.koram-rc.', '').replace('.json', '');
 
               const executor = new NuxtExecutor((msg, level) => {
                 this.logToWs(ws, msg, level);

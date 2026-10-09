@@ -10,7 +10,7 @@ class InfraWebserverGenCommand extends Command {
   async run() {
     const { flags } = this.parse(InfraWebserverGenCommand);
     const projectRoot = process.cwd();
-    const rcPath = await selectKoramConfig(projectRoot, flags.env || 'production');
+    const rcPath = await selectKoramConfig(projectRoot, flags.env);
 
     if (!rcPath) {
       this.error('❌ No se encontró archivo de configuración .koram-rc.<env>.json');
@@ -25,7 +25,7 @@ class InfraWebserverGenCommand extends Command {
       return;
     }
 
-    const env = flags.env || 'production';
+    const env = flags.env || path.basename(rcPath).replace('.koram-rc.', '').replace('.json', '');
     const appName = configFile.name || 'koram-app';
 
     try {
@@ -72,7 +72,7 @@ Guarda por defecto en .koram/webserver/<appName>-<env>.conf o en la ruta de --ou
 `;
 
 InfraWebserverGenCommand.flags = {
-  env: flags.string({ char: 'e', description: 'Entorno a usar (production, staging, etc)', default: 'production' }),
+  env: flags.string({ char: 'e', description: 'Entorno a usar (production, staging, etc)' }),
   out: flags.string({ char: 'o', description: 'Ruta de salida para guardar el archivo nginx.conf' }),
   force: flags.boolean({ char: 'f', description: 'Fuerza la sobrescritura de la plantilla Nginx local existente', default: false }),
 };

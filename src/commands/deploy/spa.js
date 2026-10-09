@@ -416,14 +416,19 @@ class DeploySPACommand extends Command {
       }
 
       // Sincronizar Nginx de forma opcional
-      const webserverEnv = (flags.env || config.environment || 'production');
+      const selectedEnv = configPath ? path.basename(configPath).replace('.koram-rc.', '').replace('.json', '') : null;
+      const webserverEnv = flags.env || selectedEnv || config.env?.NODE_ENV || config.environment || 'production';
       let shouldSyncWebserver = false;
       if (flags['no-webserver']) {
         shouldSyncWebserver = false;
       } else if (flags.webserver) {
         shouldSyncWebserver = true;
       } else {
-        shouldSyncWebserver = !!config.deploy?.webserver?.autoApply;
+        if (config.deploy?.webserver?.autoApply === false || config.webserver?.autoApply === false) {
+          shouldSyncWebserver = false;
+        } else {
+          shouldSyncWebserver = Boolean(config.deploy?.webserver?.autoApply || config.webserver?.autoApply);
+        }
       }
 
       if (shouldSyncWebserver && config.webserver) {
@@ -477,8 +482,8 @@ DeploySPACommand.flags = {
   user: flags.string({ char: 'u', description: 'Usuario SSH' }),
   path: flags.string({ char: 'p', description: 'Ruta remota' }),
   now: flags.boolean({ description: 'Ejecutar despliegue inmediatamente sin Dashboard' }),
-  webserver: flags.boolean({ description: 'Fuerza la sincronización de Nginx al finalizar', default: false }),
-  'no-webserver': flags.boolean({ description: 'Evita la sincronización de Nginx al finalizar', default: false }),
+  webserver: flags.boolean({ description: 'Fuerza la sincronización de Nginx al finalizar' }),
+  'no-webserver': flags.boolean({ description: 'Evita la sincronización de Nginx al finalizar' }),
 };
 
 DeploySPACommand.args = [

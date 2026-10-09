@@ -811,6 +811,7 @@
           };
 
           const startDeploy = () => {
+            saveConfig();
             logs.value = [
               {
                 time: new Date().toLocaleTimeString(),
@@ -824,6 +825,7 @@
               JSON.stringify({
                 type: "start_deploy",
                 name: selectedConfig.value,
+                data: JSON.parse(JSON.stringify(form)),
               }),
             );
           };

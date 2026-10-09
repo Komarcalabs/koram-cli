@@ -9,14 +9,14 @@ class InfraWebserverCommand extends Command {
   async run() {
     const { flags } = this.parse(InfraWebserverCommand);
     const projectRoot = process.cwd();
-    const env = flags.env || "production";
-    const rcPath = await selectKoramConfig(projectRoot, env);
+    const rcPath = await selectKoramConfig(projectRoot, flags.env);
 
     if (!rcPath) {
       this.error("❌ No se encontró archivo de configuración .koram-rc.<env>.json");
       return;
     }
 
+    const env = flags.env || path.basename(rcPath).replace('.koram-rc.', '').replace('.json', '');
     const configFile = JSON.parse(fs.readFileSync(rcPath));
     try {
       await syncRemoteWebserver(null, configFile, env, this.log.bind(this));
@@ -31,7 +31,7 @@ Soporta múltiples configuraciones, fuente de verdad simétrica (.koram/webserve
 `;
 
 InfraWebserverCommand.flags = {
-  env: flags.string({ char: "e", description: "Entorno a usar (production, staging, etc)", default: "production" }),
+  env: flags.string({ char: "e", description: "Entorno a usar (production, staging, etc)" }),
 };
 
 module.exports = InfraWebserverCommand;

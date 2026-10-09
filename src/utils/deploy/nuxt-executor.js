@@ -15,10 +15,32 @@ const KNOWN_NATIVE_PACKAGES = [
   'canvas',
   'argon2',
   '@prisma/client',
+  'prisma',
   'fsevents',
   'node-sass',
-  'isolated-vm'
+  'isolated-vm',
+  'snappy'
 ];
+
+function getNativePackagesWithVersions(pkgJsonContent) {
+  let declaredDeps = {};
+  if (typeof pkgJsonContent === 'object' && pkgJsonContent !== null) {
+    declaredDeps = { ...(pkgJsonContent.dependencies || {}), ...(pkgJsonContent.devDependencies || {}) };
+  } else if (typeof pkgJsonContent === 'string') {
+    try {
+      const parsed = JSON.parse(pkgJsonContent);
+      declaredDeps = { ...(parsed.dependencies || {}), ...(parsed.devDependencies || {}) };
+    } catch (e) { }
+  }
+
+  const result = {};
+  for (const pkg of KNOWN_NATIVE_PACKAGES) {
+    if (declaredDeps[pkg] !== undefined) {
+      result[pkg] = declaredDeps[pkg];
+    }
+  }
+  return result;
+}
 
 function getNativePackagesToRebuild(pkgJsonContent, configuredRebuild) {
   if (Array.isArray(configuredRebuild)) {
@@ -232,6 +254,17 @@ class NuxtExecutor {
       }
 
       // 4. Smart Install (.output/server & Root)
+      // Detectar arquitectura y SO del servidor remoto para garantizar compatibilidad binaria de C++
+      let remoteArch = 'x64';
+      let remotePlatform = 'linux';
+      try {
+        const unameM = await ssh.execCommand('uname -m');
+        const rawM = unameM.stdout.trim().toLowerCase();
+        if (rawM === 'aarch64' || rawM === 'arm64') remoteArch = 'arm64';
+        const unameS = await ssh.execCommand('uname -s');
+        if (unameS.stdout.trim().toLowerCase() === 'darwin') remotePlatform = 'darwin';
+      } catch (e) { }
+
       const serverPkgPath = path.join(projectRoot, outputDir, 'server', 'package.json');
       const hasServerPkg = fs.existsSync(serverPkgPath);
       const shouldServerInstall = config.advanced?.serverInstall !== false && hasServerPkg;
@@ -247,12 +280,45 @@ class NuxtExecutor {
         const checkNodeModules = await ssh.execCommand(`[ -d "${remotePath}/${outputDir}/server/node_modules" ] && echo "exists" || echo "missing"`);
         const serverModulesExist = checkNodeModules.stdout.trim() === 'exists';
 
-        if (localServerHash === remoteServerHash && serverModulesExist) {
+        // Recopilar módulos nativos tanto del servidor Nitro (.output/server) como de la raíz del proyecto
+        let rootPkgRaw = null;
+        try {
+          const rootPkgPath = path.join(projectRoot, 'package.json');
+          if (fs.existsSync(rootPkgPath)) rootPkgRaw = fs.readFileSync(rootPkgPath, 'utf-8');
+        } catch (e) { }
+
+        const serverNative = getNativePackagesToRebuild(serverPkgRaw, config.advanced?.nativeRebuild);
+        const rootNative = getNativePackagesToRebuild(rootPkgRaw, config.advanced?.nativeRebuild);
+        const allNativePkgs = Array.from(new Set([...serverNative, ...rootNative])).filter(p => p !== '--all');
+
+        const serverVersions = getNativePackagesWithVersions(serverPkgRaw);
+        const rootVersions = getNativePackagesWithVersions(rootPkgRaw);
+        const mergedVersions = { ...rootVersions, ...serverVersions };
+
+        // Auto-verificación de integridad binaria en el servidor para evitar falsos positivos de caché
+        let hasMissingNativeBindings = false;
+        if (allNativePkgs.length > 0 && serverModulesExist) {
+          const checkBindingsCmd = `
+            missing=0
+            if [ -d "${remotePath}/${outputDir}/server/node_modules/sharp" ] && [ ! -d "${remotePath}/${outputDir}/server/node_modules/sharp/build/Release" ] && [ ! -d "${remotePath}/${outputDir}/server/node_modules/@img" ]; then missing=1; fi
+            if [ -d "${remotePath}/${outputDir}/server/node_modules/sqlite3" ] && [ ! -f "${remotePath}/${outputDir}/server/node_modules/sqlite3/build/Release/node_sqlite3.node" ]; then missing=1; fi
+            if [ -d "${remotePath}/${outputDir}/server/node_modules/argon2" ] && [ ! -f "${remotePath}/${outputDir}/server/node_modules/argon2/build/Release/argon2.node" ] && [ ! -f "${remotePath}/${outputDir}/server/node_modules/argon2/lib/binding/napi-v3/argon2.node" ]; then missing=1; fi
+            echo $missing
+          `.trim();
+          const checkRes = await ssh.execCommand(checkBindingsCmd);
+          if (checkRes.stdout.trim() === '1') {
+            hasMissingNativeBindings = true;
+            this.log('⚠️ Detectados módulos nativos sin binarios compilados en el servidor. Reparando dependencias...', 'info');
+          }
+        }
+
+        if (localServerHash === remoteServerHash && serverModulesExist && !hasMissingNativeBindings) {
           this.log(`✅ Dependencias de ${outputDir}/server idénticas y al día. Saltando instalación.`, 'success');
         } else {
-          this.log(`🔄 Sincronizando módulos de ${outputDir}/server en el servidor...`, 'info');
+          this.log(`🔄 Sincronizando módulos de ${outputDir}/server para ${remotePlatform}-${remoteArch}...`, 'info');
           const envBypass = 'export NPM_CONFIG_ENGINE_STRICT=false; export NPM_CONFIG_LEGACY_PEER_DEPS=true; export NPM_CONFIG_REGISTRY=https://registry.npmjs.org/;';
-          const serverInstallCmd = `npm install --omit=dev --no-audit --no-progress`;
+          const platformFlags = `--platform=${remotePlatform} --arch=${remoteArch} --ignore-scripts=false`;
+          const serverInstallCmd = `npm install ${platformFlags} --omit=dev --no-audit --no-progress`;
 
           const installRes = await ssh.execCommand(`cd ${remotePath}/${outputDir}/server && ${finalRemoteLoader} && ${envBypass} ${serverInstallCmd}`);
           if (installRes.code !== 0) {
@@ -261,21 +327,26 @@ class NuxtExecutor {
             await ssh.execCommand(`cd ${remotePath}/${outputDir}/server && rm -rf node_modules package-lock.json && ${finalRemoteLoader} && ${envBypass} ${serverInstallCmd}`);
           }
 
-          // Detección y reconstrucción de módulos nativos en .output/server
-          const nativeToRebuild = getNativePackagesToRebuild(serverPkgRaw, config.advanced?.nativeRebuild);
-          this.log(`🔨 Verificando/Reconstruyendo módulos nativos en ${outputDir}/server...`, 'info');
+          if (allNativePkgs.length > 0) {
+            this.log(`🧩 Asegurando binarios nativos compatibles (${allNativePkgs.join(', ')})...`, 'info');
+            const pkgsToExplicitlyInstall = allNativePkgs.map(p => mergedVersions[p] ? `${p}@${mergedVersions[p]}` : p);
+            await ssh.execCommand(`cd ${remotePath}/${outputDir}/server && ${finalRemoteLoader} && ${envBypass} npm install ${platformFlags} ${pkgsToExplicitlyInstall.join(' ')}`);
 
-          let rebuildCmd = '';
-          if (nativeToRebuild.length > 0 && !nativeToRebuild.includes('--all')) {
-            this.log(`⚙️ Reconstruyendo binarios nativos: ${nativeToRebuild.join(', ')}...`, 'info');
-            rebuildCmd = `${envBypass} (npm rebuild ${nativeToRebuild.join(' ')} --build-from-source || npm rebuild --build-from-source || echo '⚠️ Advertencia en rebuild')`;
-          } else {
-            rebuildCmd = `${envBypass} (npm rebuild --build-from-source || npm rebuild --update-binary || echo '⚠️ Advertencia en rebuild')`;
+            // Ejecución de hooks de post-instalación de módulos nativos
+            const postInstallHooks = [
+              '[ -d "node_modules/argon2" ] && (cd node_modules/argon2 && npm run install 2>/dev/null || true)',
+              '[ -d "node_modules/sharp" ] && (cd node_modules/sharp && npm run install 2>/dev/null || true)',
+              '[ -d "node_modules/sqlite3" ] && (cd node_modules/sqlite3 && (npx node-gyp rebuild 2>/dev/null || npm run install 2>/dev/null || true))'
+            ].join('; ');
+            await ssh.execCommand(`cd ${remotePath}/${outputDir}/server && ${finalRemoteLoader} && ${envBypass} ${postInstallHooks}`);
+
+            // Rebuild con fallback progresivo: preconstruido -> update-binary -> build-from-source
+            this.log(`🔨 Vinculando bindings nativos en ${outputDir}/server...`, 'info');
+            const rebuildCmd = `${envBypass} (npm rebuild ${allNativePkgs.join(' ')} || npm rebuild ${allNativePkgs.join(' ')} --update-binary || npm rebuild ${allNativePkgs.join(' ')} --build-from-source || echo '⚠️ Advertencia en rebuild')`;
+            const rebuildRes = await ssh.execCommand(`cd ${remotePath}/${outputDir}/server && ${finalRemoteLoader} && ${rebuildCmd}`);
+            if (rebuildRes.stdout) this.log(rebuildRes.stdout);
+            if (rebuildRes.stderr && rebuildRes.code !== 0) this.log(rebuildRes.stderr, 'info');
           }
-
-          const rebuildRes = await ssh.execCommand(`cd ${remotePath}/${outputDir}/server && ${finalRemoteLoader} && ${rebuildCmd}`);
-          if (rebuildRes.stdout) this.log(rebuildRes.stdout);
-          if (rebuildRes.stderr && rebuildRes.code !== 0) this.log(rebuildRes.stderr, 'info');
 
           await ssh.execCommand(`echo "${localServerHash}" > ${remotePath}/${outputDir}/server/.server_lockhash`);
           this.log(`✅ Dependencias de ${outputDir}/server listas.`, 'success');
@@ -314,7 +385,7 @@ class NuxtExecutor {
             installCmd = 'pnpm install --prod --no-frozen-lockfile';
           } else {
             envBypass = 'export NPM_CONFIG_ENGINE_STRICT=false; export NPM_CONFIG_LEGACY_PEER_DEPS=true; export NPM_CONFIG_REGISTRY=https://registry.npmjs.org/;';
-            let npmFlags = '--omit=dev --no-audit --no-progress';
+            let npmFlags = `--platform=${remotePlatform} --arch=${remoteArch} --ignore-scripts=false --omit=dev --no-audit --no-progress`;
             if (optimizeNpm) npmFlags += ' --prefer-offline';
             installCmd = `npm install ${npmFlags}`;
           }
@@ -333,7 +404,7 @@ class NuxtExecutor {
           this.log('🔨 Reconstruyendo módulos nativos en raíz del servidor...', 'info');
           let rebuildCmd = '';
           if (rootNativeToRebuild.length > 0 && !rootNativeToRebuild.includes('--all')) {
-            rebuildCmd = `${envBypass} (${packageManager} rebuild ${rootNativeToRebuild.join(' ')} || npm rebuild ${rootNativeToRebuild.join(' ')} --build-from-source || ${packageManager} rebuild || echo '⚠️ Advertencia en rebuild')`;
+            rebuildCmd = `${envBypass} (${packageManager} rebuild ${rootNativeToRebuild.join(' ')} || npm rebuild ${rootNativeToRebuild.join(' ')} --update-binary || npm rebuild ${rootNativeToRebuild.join(' ')} --build-from-source || ${packageManager} rebuild || echo '⚠️ Advertencia en rebuild')`;
           } else {
             rebuildCmd = `${envBypass} (${packageManager} rebuild || npm rebuild --update-binary || npm rebuild --build-from-source || echo '⚠️ Advertencia en rebuild')`;
           }
@@ -404,14 +475,23 @@ class NuxtExecutor {
       }
 
       // Sincronizar Nginx de forma opcional
-      const webserverEnv = (flags.env || config.environment || 'production');
+      const webserverEnv = flags?.env 
+        || config._envName 
+        || (config.buildEnv ? config.buildEnv.split('.').pop() : null) 
+        || config.env?.NODE_ENV 
+        || config.environment 
+        || 'production';
       let shouldSyncWebserver = false;
       if (flags['no-webserver']) {
         shouldSyncWebserver = false;
       } else if (flags.webserver) {
         shouldSyncWebserver = true;
       } else {
-        shouldSyncWebserver = !!config.deploy?.webserver?.autoApply;
+        if (config.deploy?.webserver?.autoApply === false || config.webserver?.autoApply === false) {
+          shouldSyncWebserver = false;
+        } else {
+          shouldSyncWebserver = Boolean(config.deploy?.webserver?.autoApply || config.webserver?.autoApply);
+        }
       }
 
       if (shouldSyncWebserver && config.webserver) {
@@ -481,4 +561,5 @@ class NuxtExecutor {
 module.exports = NuxtExecutor;
 module.exports.NuxtExecutor = NuxtExecutor;
 module.exports.getNativePackagesToRebuild = getNativePackagesToRebuild;
+module.exports.getNativePackagesWithVersions = getNativePackagesWithVersions;
 module.exports.KNOWN_NATIVE_PACKAGES = KNOWN_NATIVE_PACKAGES;

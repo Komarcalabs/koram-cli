@@ -172,11 +172,36 @@ function saveLocalConfig(projectRoot, appName, env, content) {
 }
 
 function readLocalConfig(projectRoot, appName, env) {
-  const filePath = getLocalConfigPath(projectRoot, appName, env);
-  if (fs.existsSync(filePath)) {
-    return fs.readFileSync(filePath, 'utf-8');
+  const candidates = [
+    path.join(projectRoot, '.koram', 'webserver', `${appName}-${env}.kr.conf`),
+    path.join(projectRoot, '.koram', 'webserver', `${appName}-${env}.conf`),
+    path.join(projectRoot, '.koram', 'webserver', `${appName}.${env}.conf`),
+    path.join(projectRoot, '.koram', 'webserver', `${env}.kr.conf`),
+    path.join(projectRoot, '.koram', 'webserver', `${env}.conf`),
+    path.join(projectRoot, '.koram', 'webserver', `${appName}.kr.conf`),
+    path.join(projectRoot, '.koram', 'webserver', `${appName}.conf`),
+  ];
+  for (const filePath of candidates) {
+    if (fs.existsSync(filePath)) {
+      return fs.readFileSync(filePath, 'utf-8');
+    }
   }
   return null;
+}
+
+/**
+ * Limpia enlaces simbólicos rotos (dangling symlinks) en /etc/nginx/sites-enabled y /etc/nginx/conf.d
+ * para evitar que archivos eliminados o de otros entornos provoquen error al ejecutar `nginx -t`.
+ */
+async function cleanBrokenNginxSymlinks(activeSsh, logFn = console.log) {
+  const cleanCmd = `for link in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*; do if [ -L "$link" ] && [ ! -e "$link" ]; then sudo rm -f "$link"; echo "CLEANED:$link"; fi; done`;
+  const res = await activeSsh.execCommand(cleanCmd);
+  if (res.stdout && res.stdout.includes('CLEANED:')) {
+    const cleaned = res.stdout.trim().split('\n').filter(l => l.startsWith('CLEANED:')).map(l => l.replace('CLEANED:', ''));
+    for (const link of cleaned) {
+      logFn(`🧹 Enlace simbólico roto eliminado de Nginx: ${link}`);
+    }
+  }
 }
 
 /**
@@ -323,6 +348,7 @@ async function syncRemoteWebserver(ssh, configFile, env, logFn = console.log) {
 
       // 2.3 Recargar Nginx
       logFn(`🔄 Recargando Nginx para validación...`);
+      await cleanBrokenNginxSymlinks(activeSsh, logFn);
       const reloadRes = await activeSsh.execCommand(`sudo nginx -t && sudo systemctl reload nginx`);
       if (reloadRes.code !== 0) {
         throw new Error(`Fallo al recargar Nginx en bootstrap: ${reloadRes.stderr}`);
@@ -375,6 +401,7 @@ async function syncRemoteWebserver(ssh, configFile, env, logFn = console.log) {
 
     // 5. Testear y recargar Nginx
     logFn(`🔄 Comprobando sintaxis y recargando Nginx...`);
+    await cleanBrokenNginxSymlinks(activeSsh, logFn);
     const finalReload = await activeSsh.execCommand(`sudo nginx -t && (sudo systemctl reload nginx || sudo service nginx reload)`);
     if (finalReload.code !== 0) {
       throw new Error(`Error al recargar Nginx: ${finalReload.stderr}`);
@@ -394,5 +421,6 @@ module.exports = {
   ensureLocalDir,
   saveLocalConfig,
   readLocalConfig,
+  cleanBrokenNginxSymlinks,
   syncRemoteWebserver,
 };

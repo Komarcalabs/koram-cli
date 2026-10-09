@@ -112,4 +112,63 @@ describe('Nginx Configuration Utility', () => {
     expect(result).to.not.contain('ssl_certificate');
     expect(result).to.contain('MODO: Bootstrap Temporal');
   });
+
+  describe('readLocalConfig candidate file resolution', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const { readLocalConfig, cleanBrokenNginxSymlinks } = require('../../src/utils/nginx');
+
+    let tempDir;
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'koram-nginx-test-'));
+      fs.mkdirSync(path.join(tempDir, '.koram', 'webserver'), { recursive: true });
+    });
+
+    afterEach(() => {
+      try {
+        fs.rmSync ? fs.rmSync(tempDir, { recursive: true, force: true }) : fs.unlinkSync(tempDir);
+      } catch (e) {}
+    });
+
+    it('should find local template with .kr.conf extension', () => {
+      const confPath = path.join(tempDir, '.koram', 'webserver', 'my-app-plan.kr.conf');
+      fs.writeFileSync(confPath, '# custom kr conf', 'utf-8');
+
+      const content = readLocalConfig(tempDir, 'my-app', 'plan');
+      expect(content).to.equal('# custom kr conf');
+    });
+
+    it('should find local template with standard .conf extension as fallback', () => {
+      const confPath = path.join(tempDir, '.koram', 'webserver', 'my-app-plan.conf');
+      fs.writeFileSync(confPath, '# custom standard conf', 'utf-8');
+
+      const content = readLocalConfig(tempDir, 'my-app', 'plan');
+      expect(content).to.equal('# custom standard conf');
+    });
+
+    it('should return null when no local template exists', () => {
+      const content = readLocalConfig(tempDir, 'my-app', 'plan');
+      expect(content).to.be.null;
+    });
+
+    it('should execute broken symlink cleanup command without errors', async () => {
+      const mockSsh = {
+        execCommand: async (cmd) => {
+          if (cmd.includes('CLEANED:')) {
+            return {
+              stdout: 'CLEANED:/etc/nginx/sites-enabled/3202-menstruaventura-cms-production.kr.conf\n',
+              stderr: '',
+              code: 0
+            };
+          }
+          return { stdout: '', stderr: '', code: 0 };
+        }
+      };
+
+      const cleaned = [];
+      await cleanBrokenNginxSymlinks(mockSsh, (msg) => cleaned.push(msg));
+      expect(cleaned.some(l => l.includes('3202-menstruaventura-cms-production.kr.conf'))).to.be.true;
+    });
+  });
 });
