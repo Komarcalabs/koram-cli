@@ -92,7 +92,7 @@ class SetupCommand extends Command {
             };
 
             if (credentials.keyPath && fs.existsSync(credentials.keyPath)) {
-                connOpts.privateKey = fs.readFileSync(credentials.keyPath);
+                connOpts.privateKey = fs.readFileSync(credentials.keyPath, 'utf8');
                 if (credentials.passphrase) connOpts.passphrase = credentials.passphrase;
             } else if (credentials.password) {
                 connOpts.password = credentials.password;

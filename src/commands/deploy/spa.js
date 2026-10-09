@@ -202,7 +202,7 @@ class DeploySPACommand extends Command {
               };
 
               if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
-                connectionOpts.privateKey = fs.readFileSync(vaultKeyPath);
+                connectionOpts.privateKey = fs.readFileSync(vaultKeyPath, 'utf8');
                 if (vaultPassphrase) connectionOpts.passphrase = vaultPassphrase;
               } else if (vaultPassword) {
                 connectionOpts.password = vaultPassword;
@@ -288,7 +288,7 @@ class DeploySPACommand extends Command {
         agent: process.env.SSH_AUTH_SOCK
       };
       if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
-        sshConnOpts.privateKey = fs.readFileSync(vaultKeyPath);
+        sshConnOpts.privateKey = fs.readFileSync(vaultKeyPath, 'utf8');
         if (vaultPassphrase) sshConnOpts.passphrase = vaultPassphrase;
       } else if (vaultPassword) {
         sshConnOpts.password = vaultPassword;

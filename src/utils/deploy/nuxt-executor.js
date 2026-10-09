@@ -87,7 +87,7 @@ class NuxtExecutor {
           tryKeyboard: true,
         };
         if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
-          sshConfig.privateKey = fs.readFileSync(vaultKeyPath);
+          sshConfig.privateKey = fs.readFileSync(vaultKeyPath, 'utf8');
           if (vaultPassphrase) sshConfig.passphrase = vaultPassphrase;
         } else if (vaultPassword) {
           sshConfig.password = vaultPassword;

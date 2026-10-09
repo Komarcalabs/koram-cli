@@ -124,7 +124,7 @@ class SshCommand extends Command {
 
     const connConfig = { host, port: 22, username: user };
     if (keyPath && fs.existsSync(keyPath)) {
-      connConfig.privateKey = fs.readFileSync(keyPath);
+      connConfig.privateKey = fs.readFileSync(keyPath, 'utf8');
       if (passphrase) connConfig.passphrase = passphrase;
     } else if (password) {
       connConfig.password = password;

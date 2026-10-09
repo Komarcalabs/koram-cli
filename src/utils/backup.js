@@ -42,7 +42,7 @@ async function getBackupSshConnection(serverConfig, defaultServer) {
   };
 
   if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
-    connectionOpts.privateKey = fs.readFileSync(vaultKeyPath);
+    connectionOpts.privateKey = fs.readFileSync(vaultKeyPath, 'utf8');
     if (vaultPassphrase) connectionOpts.passphrase = vaultPassphrase;
   } else if (vaultPassword) {
     connectionOpts.password = vaultPassword;

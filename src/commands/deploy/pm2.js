@@ -290,6 +290,7 @@ class DeployCommand extends Command {
     const postDeploy = configFile['post-deploy'];
 
     const gitBranch = ref.split('/').pop() || 'master';
+    const nvmEnvLoader = '[ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"; [ -s "/root/.nvm/nvm.sh" ] && . "/root/.nvm/nvm.sh";';
 
     // 1. Determinar si el servidor requiere setup (primera vez o solicitado explícitamente)
     const checkGit = await ssh.execCommand(`[ -d "${remotePath}/source/.git" ] && echo "exists" || echo "missing"`);
@@ -309,7 +310,7 @@ class DeployCommand extends Command {
       if (preSetup) {
         console.log(chalk.blue(`🔹 Ejecutando pre-setup en el servidor...`));
         logFile.write(`--- Pre-Setup ---\n`);
-        const preSetupCmd = `bash -l -c "${preSetup}"`;
+        const preSetupCmd = `(${nvmEnvLoader} ${preSetup})`;
         const preSetupResult = await ssh.execCommand(preSetupCmd, {
           onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
           onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
@@ -367,7 +368,7 @@ class DeployCommand extends Command {
       if (postSetup) {
         console.log(chalk.blue(`🔹 Ejecutando post-setup en el servidor...`));
         logFile.write(`--- Post-Setup ---\n`);
-        const postSetupCmd = `bash -l -c "cd \\"${remotePath}/source\\" && ${postSetup}"`;
+        const postSetupCmd = `cd "${remotePath}/source" && (${nvmEnvLoader} ${postSetup})`;
         const postSetupResult = await ssh.execCommand(postSetupCmd, {
           onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
           onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
@@ -411,7 +412,7 @@ class DeployCommand extends Command {
     if (preDeploy) {
       console.log(chalk.blue(`🔹 Ejecutando pre-deploy en el servidor...`));
       logFile.write(`--- Pre-Deploy ---\n`);
-      const preDeployCmd = `bash -l -c "cd \\"${remotePath}/source\\" && ${preDeploy}"`;
+      const preDeployCmd = `cd "${remotePath}/source" && (${nvmEnvLoader} ${preDeploy})`;
       const preDeployResult = await ssh.execCommand(preDeployCmd, {
         onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
         onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
@@ -523,7 +524,7 @@ class DeployCommand extends Command {
     if (postDeploy) {
       console.log(chalk.blue(`🔹 Ejecutando comandos Post-Deploy en el servidor...`));
       logFile.write(`--- Post-Deploy ---\n`);
-      const postDeployCmd = `bash -l -c "cd \\"${remotePath}/source\\" && ${postDeploy}"`;
+      const postDeployCmd = `cd "${remotePath}/source" && (${nvmEnvLoader} ${postDeploy})`;
       
       const postResult = await ssh.execCommand(postDeployCmd, {
         onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },

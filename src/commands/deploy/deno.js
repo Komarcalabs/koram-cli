@@ -73,7 +73,7 @@ class InfraDeployCommand extends Command {
     };
 
     if (resolvedDenoKey && fs.existsSync(resolvedDenoKey)) {
-      denoConnOpts.privateKey = fs.readFileSync(resolvedDenoKey);
+      denoConnOpts.privateKey = fs.readFileSync(resolvedDenoKey, 'utf8');
       if (credentials?.passphrase) denoConnOpts.passphrase = credentials.passphrase;
     } else if (credentials?.password) {
       denoConnOpts.password = credentials.password;

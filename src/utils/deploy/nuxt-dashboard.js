@@ -157,7 +157,7 @@ class NuxtDashboard {
               if (config.server.sshKey) {
                 const keyPath = config.server.sshKey.replace('~', process.env.HOME || process.env.USERPROFILE || '');
                 if (fs.existsSync(keyPath)) {
-                  connectionOpts.privateKey = fs.readFileSync(keyPath);
+                  connectionOpts.privateKey = fs.readFileSync(keyPath, 'utf8');
                 }
               }
 
