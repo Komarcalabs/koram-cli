@@ -482,9 +482,9 @@ class NuxtExecutor {
         || config.environment 
         || 'production';
       let shouldSyncWebserver = false;
-      if (flags['no-webserver']) {
+      if (flags?.['no-webserver']) {
         shouldSyncWebserver = false;
-      } else if (flags.webserver) {
+      } else if (flags?.webserver) {
         shouldSyncWebserver = true;
       } else {
         if (config.deploy?.webserver?.autoApply === false || config.webserver?.autoApply === false) {

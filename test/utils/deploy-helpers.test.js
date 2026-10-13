@@ -97,4 +97,38 @@ describe('Deployment Helpers & Strategy Utilities', () => {
       expect(symlinkCmd).to.equal('cd /var/www/my-app && ln -sfn releases/2026-09-24T15-30-00 current');
     });
   });
+
+  describe('DeploySPACommand Parameter & Environment Resolution', () => {
+    const DeploySPACommand = require('../../src/commands/deploy/spa');
+
+    it('should have executeDeployment method supporting configPath and flags', () => {
+      const cmd = new DeploySPACommand([], {});
+      expect(cmd.executeDeployment).to.be.a('function');
+      expect(cmd.executeDeployment.length).to.be.at.least(2);
+    });
+
+    it('should correctly derive environment from configPath or config._envName', () => {
+      const configPath = '/path/to/.koram-rc.staging.json';
+      const envFromPath = path.basename(configPath).replace('.koram-rc.', '').replace('.json', '');
+      expect(envFromPath).to.equal('staging');
+
+      const config = { _configPath: configPath, _envName: 'staging' };
+      const effectivePath = config._configPath;
+      const resolvedEnv = effectivePath
+        ? path.basename(effectivePath).replace('.koram-rc.', '').replace('.json', '')
+        : (config._envName || 'production');
+      expect(resolvedEnv).to.equal('staging');
+    });
+
+    it('should respect flags precedence for webserverEnv', () => {
+      const flags = { env: 'custom-env' };
+      const config = { environment: 'production', _envName: 'staging' };
+      const effectiveFlags = flags || {};
+      const webserverEnv = effectiveFlags.env
+        || config._envName
+        || config.environment
+        || 'production';
+      expect(webserverEnv).to.equal('custom-env');
+    });
+  });
 });

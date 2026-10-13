@@ -15,6 +15,7 @@ const { getCredentialByKey, selectKoramConfig, ensureRemoteDirectory } = require
 class DeploySPACommand extends Command {
   async run() {
     const { args, flags } = this.parse(DeploySPACommand);
+    this.flags = flags;
     const alias = args.alias || '.';
     const projectRoot = process.cwd();
 
@@ -58,8 +59,11 @@ class DeploySPACommand extends Command {
       if (flags.user) { if (!config.server) config.server = {}; config.server.user = flags.user; }
       if (flags.path) { if (!config.deploy) config.deploy = {}; config.deploy.path = flags.path; }
 
+      config._configPath = configPath;
+      config._envName = path.basename(configPath).replace('.koram-rc.', '').replace('.json', '');
+
       try {
-        await this.executeDeployment(config, null);
+        await this.executeDeployment(config, null, configPath, flags);
         this.log(chalk.green('✅ Despliegue completado con éxito.'));
         process.exit(0);
       } catch (err) {
@@ -154,9 +158,32 @@ class DeploySPACommand extends Command {
             isBusy = true;
             this.broadcast(wss, { type: 'status', busy: true });
             try {
-              const configPath = path.join(projectRoot, data.name);
-              const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-              await this.executeDeployment(config, ws);
+              const currentConfigPath = path.join(projectRoot, data.name);
+              let config = fs.existsSync(currentConfigPath) ? JSON.parse(fs.readFileSync(currentConfigPath, 'utf8')) : {};
+
+              if (data.data) {
+                const serverData = { ...data.data.server };
+                delete serverData.password;
+                delete serverData.password_plain;
+
+                config = {
+                  ...config,
+                  name: data.data.name || config.name,
+                  server: { ...config.server, ...serverData },
+                  deploy: { ...config.deploy, ...data.data.deploy },
+                  env: { ...config.env, ...data.data.env },
+                  buildEnv: data.data.buildEnv || config.buildEnv,
+                  processes: data.data.processes || config.processes,
+                  advanced: { ...config.advanced, ...data.data.advanced }
+                };
+
+                fs.writeFileSync(currentConfigPath, JSON.stringify(config, null, 2));
+              }
+
+              config._configPath = currentConfigPath;
+              config._envName = data.name.replace('.koram-rc.', '').replace('.json', '');
+
+              await this.executeDeployment(config, ws, currentConfigPath, flags);
             } catch (err) {
               this.logToWs(ws, `❌ Error crítico: ${err.message}`, 'error');
             } finally {
@@ -256,7 +283,7 @@ class DeploySPACommand extends Command {
     });
   }
 
-  async executeDeployment(config, ws) {
+  async executeDeployment(config, ws, configPath = null, flags = (this.flags || {})) {
     const projectRoot = process.cwd();
 
     // Recuperar credenciales directamente de la bóveda
@@ -416,12 +443,21 @@ class DeploySPACommand extends Command {
       }
 
       // Sincronizar Nginx de forma opcional
-      const selectedEnv = configPath ? path.basename(configPath).replace('.koram-rc.', '').replace('.json', '') : null;
-      const webserverEnv = flags.env || selectedEnv || config.env?.NODE_ENV || config.environment || 'production';
+      const effectiveConfigPath = configPath || config?._configPath || null;
+      const selectedEnv = effectiveConfigPath 
+        ? path.basename(effectiveConfigPath).replace('.koram-rc.', '').replace('.json', '') 
+        : (config?._envName || null);
+      const effectiveFlags = flags || this.flags || {};
+      const webserverEnv = effectiveFlags.env 
+        || selectedEnv 
+        || (config.buildEnv ? config.buildEnv.split('.').pop() : null) 
+        || config.env?.NODE_ENV 
+        || config.environment 
+        || 'production';
       let shouldSyncWebserver = false;
-      if (flags['no-webserver']) {
+      if (effectiveFlags['no-webserver']) {
         shouldSyncWebserver = false;
-      } else if (flags.webserver) {
+      } else if (effectiveFlags.webserver) {
         shouldSyncWebserver = true;
       } else {
         if (config.deploy?.webserver?.autoApply === false || config.webserver?.autoApply === false) {
@@ -444,6 +480,13 @@ class DeploySPACommand extends Command {
       }
 
       this.logToWs(ws, "✅ ¡Despliegue SPA completado!", "success");
+      const deployedUrl = config.webserver?.serverName 
+        ? `http://${config.webserver.serverName}` 
+        : `http://${config.server.host}`;
+      this.logToWs(ws, `🔗 URL de la aplicación: ${deployedUrl}`, "success");
+      if (ws && ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'deploy_success', url: deployedUrl }));
+      }
       ssh.dispose();
 
     } catch (err) {
