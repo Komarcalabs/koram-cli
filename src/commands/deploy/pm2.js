@@ -62,15 +62,38 @@ class DeployCommand extends Command {
       return;
     }
 
-    let ecosystemFile = ecosystems[0];
-    if (ecosystems.length > 1) {
-      const answer = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: 'Se encontraron varios archivos ecosystem, selecciona cuál usar:',
-        choices: ecosystems
-      }]);
-      ecosystemFile = answer.selected;
+    // Prioridad de selección de ecosystem:
+    // 1. Especificado en .koram-rc.<env>.json (koramConfig.ecosystem o koramConfig.deploy.ecosystem)
+    // 2. Coincidencia automática por nombre de entorno/tenant: ecosystem.<env>.config.js o similar
+    // 3. Si solo hay 1 archivo ecosystem
+    // 4. Preguntar interactivamente solo si hay ambigüedad
+    let ecosystemFile = koramConfig?.ecosystem || koramConfig?.deploy?.ecosystem;
+
+    if (!ecosystemFile) {
+      const matchingEcosystem = ecosystems.find(f => {
+        const base = f.toLowerCase();
+        return base === `ecosystem.${env.toLowerCase()}.config.js` ||
+               base === `ecosystem.${env.toLowerCase()}.js` ||
+               base === `ecosystem.${env.toLowerCase()}.cjs` ||
+               base.includes(`.${env.toLowerCase()}.`);
+      });
+
+      if (matchingEcosystem) {
+        ecosystemFile = matchingEcosystem;
+        console.log(chalk.cyan(`🎯 Archivo ecosystem auto-seleccionado por entorno: ${ecosystemFile}`));
+      } else if (ecosystems.length === 1) {
+        ecosystemFile = ecosystems[0];
+      } else {
+        const answer = await inquirer.prompt([{
+          type: 'list',
+          name: 'selected',
+          message: 'Se encontraron varios archivos ecosystem, selecciona cuál usar:',
+          choices: ecosystems
+        }]);
+        ecosystemFile = answer.selected;
+      }
+    } else {
+      console.log(chalk.cyan(`🎯 Archivo ecosystem configurado en .koram-rc: ${ecosystemFile}`));
     }
 
     // Importar el ecosistema
@@ -78,9 +101,10 @@ class DeployCommand extends Command {
     delete require.cache[require.resolve(tryPath)];
     const ecosystemConfig = require(tryPath);
 
-    const configFile = ecosystemConfig.deploy[env];
+    // Fallback inteligente: buscar deploy[env] y si no existe, buscar deploy['production']
+    const configFile = ecosystemConfig.deploy?.[env] || (env !== 'production' ? ecosystemConfig.deploy?.production : null);
     if (!configFile) {
-      console.log(chalk.red(`❌ No se encontró la configuración del entorno "${env}" en ${ecosystemFile}`));
+      console.log(chalk.red(`❌ No se encontró la configuración del entorno "${env}" ni "production" en ${ecosystemFile}`));
       return;
     }
 
