@@ -292,6 +292,11 @@ class DeployCommand extends Command {
     const gitBranch = ref.split('/').pop() || 'master';
     const nvmEnvLoader = '[ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"; [ -s "/root/.nvm/nvm.sh" ] && . "/root/.nvm/nvm.sh";';
 
+    // Estrategia de clonado/descarga: por defecto optimizado (shallow clone / fetch)
+    // Para descargar historial completo: fetch: "full" o shallow: false
+    const isShallow = koramConfig?.deploy?.shallow !== false && configFile?.shallow !== false && configFile?.fetch !== 'full';
+    const cloneDepth = koramConfig?.deploy?.depth || configFile?.['clone-depth'] || 5;
+
     // 1. Determinar si el servidor requiere setup (primera vez o solicitado explícitamente)
     const checkGit = await ssh.execCommand(`[ -d "${remotePath}/source/.git" ] && echo "exists" || echo "missing"`);
     const isGitMissing = checkGit.stdout.trim() !== 'exists';
@@ -348,8 +353,11 @@ class DeployCommand extends Command {
 
       // 1.3 Clonar repositorio solo si aún no existe
       if (isGitMissing) {
-        console.log(chalk.blue(`🔹 Clonando repositorio ${maskRepoUrl(repo)} en ${remotePath}/source...`));
-        const cloneResult = await ssh.execCommand(`git clone "${repo}" "${remotePath}/source"`, {
+        const cloneCmd = isShallow
+          ? `git clone --depth ${cloneDepth} --single-branch -b "${gitBranch}" "${repo}" "${remotePath}/source"`
+          : `git clone "${repo}" "${remotePath}/source"`;
+        console.log(chalk.blue(`🔹 Clonando repositorio ${maskRepoUrl(repo)} (${isShallow ? `shallow --depth ${cloneDepth}` : 'completo'}) en ${remotePath}/source...`));
+        const cloneResult = await ssh.execCommand(cloneCmd, {
           cwd: remotePath,
           onStdout: chunk => { process.stdout.write(chunk.toString()); logFile.write(chunk.toString()); },
           onStderr: chunk => { process.stderr.write(chunk.toString()); logFile.write(chunk.toString()); }
@@ -430,10 +438,14 @@ class DeployCommand extends Command {
     // Consultar commit actual antes de fetch
     const prevCommitRes = await ssh.execCommand('git rev-parse HEAD 2>/dev/null', { cwd: `${remotePath}/source` });
     const prevCommit = prevCommitRes.stdout.trim();
+    const gitFetchCmd = isShallow
+      ? `(git fetch --depth ${cloneDepth} origin "${gitBranch}" || git fetch origin "${gitBranch}")`
+      : `git fetch --all`;
+
     const gitCommands = [
       `cd "${remotePath}/source"`,
       `git stash || true`,
-      `git fetch --all`,
+      gitFetchCmd,
       `(git checkout "${gitBranch}" 2>/dev/null || git checkout -b "${gitBranch}")`,
       `git reset --hard "${ref}"`,
       `ln -sfn "${remotePath}/source" "${remotePath}/current"`,

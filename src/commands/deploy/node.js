@@ -109,10 +109,15 @@ class DeployNodeCommand extends Command {
       // 5. Clonar o Actualizar Repositorio
       const checkGit = await ssh.execCommand(`[ -d "source/.git" ] && echo "exists" || echo "missing"`, { cwd: remotePath });
       const gitBranch = ref.split('/').pop() || 'master';
+      const isShallow = deployConfig.shallow !== false && deployConfig.fetch !== 'full';
+      const cloneDepth = deployConfig.depth || 5;
 
       if (checkGit.stdout.trim() !== 'exists') {
-        console.log(chalk.blue(`🔹 Clonando repositorio ${repo} en ${remotePath}/source...`));
-        const cloneResult = await ssh.execCommand(`git clone "${repo}" "${remotePath}/source"`, { cwd: remotePath });
+        const cloneCmd = isShallow
+          ? `git clone --depth ${cloneDepth} --single-branch -b "${gitBranch}" "${repo}" "${remotePath}/source"`
+          : `git clone "${repo}" "${remotePath}/source"`;
+        console.log(chalk.blue(`🔹 Clonando repositorio ${repo} (${isShallow ? `shallow --depth ${cloneDepth}` : 'completo'}) en ${remotePath}/source...`));
+        const cloneResult = await ssh.execCommand(cloneCmd, { cwd: remotePath });
         if (cloneResult.stdout) console.log(cloneResult.stdout);
         if (cloneResult.stderr) console.error(cloneResult.stderr);
       } else {
@@ -128,10 +133,14 @@ class DeployNodeCommand extends Command {
         } catch (e) {}
 
         console.log(chalk.blue(`🔹 Actualizando código vía Git (${ref})...`));
+        const gitFetchCmd = isShallow
+          ? `(git fetch --depth ${cloneDepth} origin "${gitBranch}" || git fetch origin "${gitBranch}")`
+          : `git fetch --all`;
+
         const gitCommands = [
           `cd "${remotePath}/source"`,
           `git stash || true`,
-          `git fetch --all`,
+          gitFetchCmd,
           `git checkout "${gitBranch}" || git checkout -b "${gitBranch}" || true`,
           `git reset --hard "${ref}"`
         ].join(' && ');

@@ -88,7 +88,7 @@ class InfraDeployCommand extends Command {
     if (deploy.repository) {
       this.log(`⬇️ Clonando repo ${deploy.repository}...`);
       await ssh.execCommand(
-        `cd ${deploy.path} && git clone -b ${deploy.branch || 'main'} ${deploy.repository} . || (cd ${deploy.path} && git pull)`
+        `cd ${deploy.path} && git clone --depth 5 --single-branch -b ${deploy.branch || 'main'} ${deploy.repository} . || (cd ${deploy.path} && (git fetch --depth 5 origin ${deploy.branch || 'main'} || git pull) && git reset --hard origin/${deploy.branch || 'main'})`
       );
     } else {
       this.log('📤 Subiendo archivos locales...');
