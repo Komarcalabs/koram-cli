@@ -129,6 +129,19 @@ class NuxtDashboard {
 
               config._envName = data.name.replace('.koram-rc.', '').replace('.json', '');
 
+              if (this.aliasCreds) {
+                if (!config.server) config.server = {};
+                if (this.aliasCreds.host && !config.server.host) config.server.host = this.aliasCreds.host;
+                if (this.aliasCreds.user && !config.server.user) config.server.user = this.aliasCreds.user;
+                if (this.aliasCreds.password) config.server.password = this.aliasCreds.password;
+                if (this.aliasCreds.keyPath) config.server.sshKey = this.aliasCreds.keyPath;
+                if (this.aliasCreds.passphrase) config.server.passphrase = this.aliasCreds.passphrase;
+              }
+
+              if (this.flags?.host) { if (!config.server) config.server = {}; config.server.host = this.flags.host; }
+              if (this.flags?.user) { if (!config.server) config.server = {}; config.server.user = this.flags.user; }
+              if (this.flags?.path) { if (!config.deploy) config.deploy = {}; config.deploy.path = this.flags.path; }
+
               const executor = new NuxtExecutor((msg, level) => {
                 this.logToWs(ws, msg, level);
               });

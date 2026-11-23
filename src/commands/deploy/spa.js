@@ -305,24 +305,35 @@ class DeploySPACommand extends Command {
     }
 
     // Iniciar SSH en paralelo
+    let sshPromiseError = null;
     const sshPromise = (async () => {
-      const ssh = new NodeSSH();
-      const sshConnOpts = {
-        host: config.server.host,
-        port: parseInt(config.server.port) || 22,
-        username: config.server.user,
-        tryKeyboard: true,
-        agent: process.env.SSH_AUTH_SOCK
-      };
-      if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
-        sshConnOpts.privateKey = fs.readFileSync(vaultKeyPath, 'utf8');
-        if (vaultPassphrase) sshConnOpts.passphrase = vaultPassphrase;
-      } else if (vaultPassword) {
-        sshConnOpts.password = vaultPassword;
+      try {
+        const ssh = new NodeSSH();
+        const sshConnOpts = {
+          host: config.server.host,
+          port: parseInt(config.server.port) || 22,
+          username: config.server.user,
+          tryKeyboard: true,
+          readyTimeout: 30000,
+        };
+        if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
+          sshConnOpts.privateKey = fs.readFileSync(vaultKeyPath, 'utf8');
+          if (vaultPassphrase) sshConnOpts.passphrase = vaultPassphrase;
+        } else if (vaultPassword) {
+          sshConnOpts.password = vaultPassword;
+        }
+        if (process.env.SSH_AUTH_SOCK && !vaultPassword) {
+          sshConnOpts.agent = process.env.SSH_AUTH_SOCK;
+        }
+        await ssh.connect(sshConnOpts);
+        return ssh;
+      } catch (err) {
+        throw new Error(`Error en conexión SSH: ${err.message}`);
       }
-      await ssh.connect(sshConnOpts);
-      return ssh;
-    })();
+    })().catch((err) => {
+      sshPromiseError = err;
+      return null;
+    });
 
     try {
       // 1. Build Local
@@ -356,6 +367,9 @@ class DeploySPACommand extends Command {
       // 2. Esperar SSH
       this.logToWs(ws, "🔌 Conectando al servidor...", "info");
       const ssh = await sshPromise;
+      if (!ssh || sshPromiseError) {
+        throw (sshPromiseError || new Error('No se pudo establecer la conexión SSH con el servidor.'));
+      }
       this.logToWs(ws, "✅ Conexión SSH establecida.", "success");
 
       const remotePath = config.deploy.path;
@@ -381,9 +395,11 @@ class DeploySPACommand extends Command {
         this.logToWs(ws, "⚡ Sincronizando archivos (Rsync)...", "info");
         if (useAtomic) await ssh.execCommand(`mkdir -p ${fullRemoteDest}`);
 
-        let sshOpt = `-p ${config.server.port || 22} -o StrictHostKeyChecking=no`;
+        let sshOpt = `-p ${config.server.port || 22} -o StrictHostKeyChecking=no -o WarnWeakCrypto=no`;
         if (hasKey) {
           sshOpt = `-i "${vaultKeyPath}" ${sshOpt}`;
+        } else if (vaultPassword) {
+          sshOpt = `-o PreferredAuthentications=password -o PubkeyAuthentication=no ${sshOpt}`;
         }
         let rsyncCmd = `rsync -avz --delete --no-perms --no-owner --no-group -e "ssh ${sshOpt}"`;
         const rsyncEnv = { ...process.env };
@@ -498,12 +514,17 @@ class DeploySPACommand extends Command {
   async transferWithTar(ssh, localDir, remoteDest, cwd, ws) {
     this.logToWs(ws, "📦 Empaquetando y subiendo (Tar)...", "info");
     const tarFile = `spa-deploy-${Date.now()}.tar.gz`;
-    execSync(`tar -czf ${tarFile} -C ${localDir} .`, { cwd });
+    try {
+      execSync(`tar -czf ${tarFile} -C ${localDir} .`, { cwd });
 
-    await ssh.execCommand(`mkdir -p ${remoteDest}`);
-    await ssh.putFile(path.join(cwd, tarFile), path.join(remoteDest, tarFile));
-    await ssh.execCommand(`cd ${remoteDest} && tar -xzf ${tarFile} && rm ${tarFile}`);
-    fs.unlinkSync(path.join(cwd, tarFile));
+      await ssh.execCommand(`mkdir -p ${remoteDest}`);
+      await ssh.putFile(path.join(cwd, tarFile), path.join(remoteDest, tarFile));
+      await ssh.execCommand(`cd ${remoteDest} && tar -xzf ${tarFile} && rm ${tarFile}`);
+    } finally {
+      if (fs.existsSync(path.join(cwd, tarFile))) {
+        fs.unlinkSync(path.join(cwd, tarFile));
+      }
+    }
   }
 
   runLocalCommand(command, cwd, ws) {

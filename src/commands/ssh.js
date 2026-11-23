@@ -61,7 +61,8 @@ class SshCommand extends Command {
       if (password && !useSSHKey) {
         // Intentar sshpass primero
         try {
-          const sshProcess = spawn('sshpass', ['-p', password, 'ssh', ...sshArgs], { stdio: 'inherit' });
+          const passArgs = ['-o', 'PreferredAuthentications=password', '-o', 'PubkeyAuthentication=no', ...sshArgs];
+          const sshProcess = spawn('sshpass', ['-p', password, 'ssh', ...passArgs], { stdio: 'inherit' });
           sshProcess.on('error', (err) => {
             if (err.code === 'ENOENT') {
               this.log(chalk.yellow('⚠️  sshpass no está instalado, usando fallback ssh2...'));

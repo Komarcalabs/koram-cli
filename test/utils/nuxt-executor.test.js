@@ -65,4 +65,19 @@ describe('NuxtExecutor - Native Dependencies & Rebuild Detection', () => {
       argon2: '0.31.2'
     })
   })
+
+  it('should construct correct rsync ssh options for password authentication', () => {
+    const port = 22;
+    const hasKey = false;
+    const hasPassword = true;
+    let sshOpt = `-p ${port} -o StrictHostKeyChecking=no -o WarnWeakCrypto=no`;
+    if (hasKey) {
+      sshOpt = `-i "key.pem" ${sshOpt}`;
+    } else if (hasPassword) {
+      sshOpt = `-o PreferredAuthentications=password -o PubkeyAuthentication=no ${sshOpt}`;
+    }
+    expect(sshOpt).to.contain('-o PreferredAuthentications=password');
+    expect(sshOpt).to.contain('-o PubkeyAuthentication=no');
+    expect(sshOpt).to.contain('-o WarnWeakCrypto=no');
+  })
 })

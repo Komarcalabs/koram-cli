@@ -100,6 +100,7 @@ class NuxtExecutor {
       vaultKeyPath = vaultKeyPath.replace(/^~(?=$|\/|\\)/, process.env.HOME || '');
     }
 
+    let sshPromiseError = null;
     const sshPromise = (async () => {
       try {
         const ssh = new NodeSSH();
@@ -108,6 +109,7 @@ class NuxtExecutor {
           port: parseInt(config.server.port) || 22,
           username: config.server.user,
           tryKeyboard: true,
+          readyTimeout: 30000,
         };
         if (vaultKeyPath && fs.existsSync(vaultKeyPath)) {
           sshConfig.privateKey = fs.readFileSync(vaultKeyPath, 'utf8');
@@ -115,15 +117,19 @@ class NuxtExecutor {
         } else if (vaultPassword) {
           sshConfig.password = vaultPassword;
         }
-        if (process.env.SSH_AUTH_SOCK) {
+        // Solo usar agent SSH si no hay contraseña explícita (evita que claves ajenas agoten MaxAuthTries)
+        if (process.env.SSH_AUTH_SOCK && !vaultPassword) {
           sshConfig.agent = process.env.SSH_AUTH_SOCK;
         }
         await ssh.connect(sshConfig);
         return ssh;
       } catch (err) {
-        throw new Error(`Error en conexión SSH paralela: ${err.message}`);
+        throw new Error(`Error en conexión SSH: ${err.message}`);
       }
-    })();
+    })().catch((err) => {
+      sshPromiseError = err;
+      return null;
+    });
 
     try {
       // 0. Preparar Build Local
@@ -143,8 +149,9 @@ class NuxtExecutor {
       this.log(`🔨 Ejecutando construcción local (${envName})...`, "info");
       await this.runCommand(fullBuildCmd, projectRoot);
 
-      const outputDir = fs.existsSync('.output') ? '.output' : '.nuxt';
-      if (!fs.existsSync(outputDir)) {
+      const outputDir = fs.existsSync(path.join(projectRoot, '.output')) ? '.output' :
+        (fs.existsSync(path.join(projectRoot, '.nuxt')) ? '.nuxt' : (config.deploy?.outputDir || '.output'));
+      if (!fs.existsSync(path.join(projectRoot, outputDir))) {
         throw new Error(`No se encontró el directorio de salida (${outputDir}). ¿Ejecutaste el build correctamente?`);
       }
 
@@ -157,6 +164,9 @@ class NuxtExecutor {
       // --- ESPERAR SSH ---
       this.log('⏳ Esperando estabilización de conexión SSH...', 'info');
       const ssh = await sshPromise;
+      if (!ssh || sshPromiseError) {
+        throw (sshPromiseError || new Error('No se pudo establecer la conexión SSH con el servidor.'));
+      }
       this.log('✅ Conexión SSH establecida paralelamente.', 'success');
 
       const remotePath = config.deploy.path;
@@ -188,9 +198,11 @@ class NuxtExecutor {
         this.log('⚡ Iniciando transferencia Delta (Rsync)...', 'info');
         const rsyncTarget = `${config.server.user}@${config.server.host}:${remotePath}/`;
 
-        let sshOpt = `-p ${config.server.port || 22} -o StrictHostKeyChecking=no`;
+        let sshOpt = `-p ${config.server.port || 22} -o StrictHostKeyChecking=no -o WarnWeakCrypto=no`;
         if (hasKey) {
           sshOpt = `-i "${vaultKeyPath}" ${sshOpt}`;
+        } else if (hasPassword) {
+          sshOpt = `-o PreferredAuthentications=password -o PubkeyAuthentication=no ${sshOpt}`;
         }
         let rsyncBase = `rsync -az --delete --no-perms --no-owner --no-group -e "ssh ${sshOpt}"`;
         const rsyncEnv = { ...process.env };
@@ -550,10 +562,18 @@ class NuxtExecutor {
         if (line) this.log(line, 'info');
       });
 
-      p.on('close', (code) => {
-        if (code === 0) resolve();
+      let settled = false;
+      const finish = (code, err) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err);
+        else if (code === 0) resolve();
         else reject(new Error(`Comando '${command}' falló con código ${code}`));
-      });
+      };
+
+      p.on('error', (err) => finish(null, err));
+      p.on('exit', (code) => finish(code));
+      p.on('close', (code) => finish(code));
     });
   }
 }
