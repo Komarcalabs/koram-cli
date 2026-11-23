@@ -4,10 +4,54 @@ const path = require('path');
 const os = require('os');
 const chalk = require('chalk');
 
+function copyRecursiveSync(src, dest) {
+  const exists = fs.existsSync(src);
+  const stats = exists && fs.statSync(src);
+  const isDirectory = exists && stats.isDirectory();
+  if (isDirectory) {
+    if (!fs.existsSync(dest)) {
+      fs.mkdirSync(dest, { recursive: true });
+    }
+    fs.readdirSync(src).forEach((childItemName) => {
+      copyRecursiveSync(path.join(src, childItemName), path.join(dest, childItemName));
+    });
+  } else {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+  }
+}
+
+function syncContentWithMarkers(targetPath, rulesBlock, fullContent) {
+  const startMarker = '<!-- KORAM_AGENT_RULES_START -->';
+  const endMarker = '<!-- KORAM_AGENT_RULES_END -->';
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+
+  if (!fs.existsSync(targetPath)) {
+    fs.writeFileSync(targetPath, fullContent || rulesBlock, 'utf8');
+    return { action: 'created' };
+  }
+
+  const existingContent = fs.readFileSync(targetPath, 'utf8');
+  if (existingContent.includes(startMarker) && existingContent.includes(endMarker)) {
+    const startIndex = existingContent.indexOf(startMarker);
+    const endIndex = existingContent.indexOf(endMarker) + endMarker.length;
+    const newContent = existingContent.substring(0, startIndex) + rulesBlock + existingContent.substring(endIndex);
+    fs.writeFileSync(targetPath, newContent, 'utf8');
+    return { action: 'updated' };
+  }
+
+  const newContent = existingContent.trim() + '\n\n' + rulesBlock + '\n';
+  fs.writeFileSync(targetPath, newContent, 'utf8');
+  return { action: 'appended' };
+}
+
 class AgentAttachCommand extends Command {
   async run() {
     const { flags } = this.parse(AgentAttachCommand);
     const isGlobal = flags.global || false;
+    const target = (flags.target || 'all').toLowerCase();
+    const projectRoot = process.cwd();
 
     const srcDir = path.resolve(__dirname, '../../../agent-config');
     if (!fs.existsSync(srcDir)) {
@@ -15,125 +59,133 @@ class AgentAttachCommand extends Command {
       return;
     }
 
-    // Resolver ruta de destino
-    let targetDir;
-    if (isGlobal) {
-      targetDir = path.join(os.homedir(), '.gemini', 'config');
-    } else {
-      targetDir = path.join(process.cwd(), '.agents');
-    }
-
-    this.log(chalk.cyan(`🤖 Iniciando vinculación de conocimiento con Antigravity...`));
-    this.log(chalk.gray(`📍 Origen: ${srcDir}`));
-    this.log(chalk.gray(`📍 Destino: ${targetDir}`));
-
-    // Crear la ruta de destino si no existe
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true });
-      this.log(chalk.green(`✔ Directorio de destino creado.`));
-    }
-
-    // 1. Manejo del archivo AGENTS.md
     const srcAgentsPath = path.join(srcDir, 'AGENTS.md');
-    const targetAgentsPath = path.join(targetDir, 'AGENTS.md');
-
-    if (fs.existsSync(srcAgentsPath)) {
-      const srcAgentsContent = fs.readFileSync(srcAgentsPath, 'utf8');
-
-      // Buscar marcadores de Koram en el origen (deben estar presentes)
-      const startMarker = '<!-- KORAM_AGENT_RULES_START -->';
-      const endMarker = '<!-- KORAM_AGENT_RULES_END -->';
-
-      if (!srcAgentsContent.includes(startMarker) || !srcAgentsContent.includes(endMarker)) {
-        this.error(chalk.red(`❌ El archivo de origen AGENTS.md no contiene las marcas de control HTML necesarias.`));
-        return;
-      }
-
-      // Extraer bloque de Koram del origen
-      const startIndex = srcAgentsContent.indexOf(startMarker);
-      const endIndex = srcAgentsContent.indexOf(endMarker) + endMarker.length;
-      const koramRulesBlock = srcAgentsContent.substring(startIndex, endIndex);
-
-      if (!fs.existsSync(targetAgentsPath)) {
-        // Si no existe el destino, escribir el origen completo
-        fs.writeFileSync(targetAgentsPath, srcAgentsContent, 'utf8');
-        this.log(chalk.green(`✔ Creado archivo AGENTS.md con las reglas de Koram.`));
-      } else {
-        // Si existe, leer contenido actual
-        let targetContent = fs.readFileSync(targetAgentsPath, 'utf8');
-
-        if (targetContent.includes(startMarker) && targetContent.includes(endMarker)) {
-          // Actualizar el bloque existente
-          const targetStartIndex = targetContent.indexOf(startMarker);
-          const targetEndIndex = targetContent.indexOf(endMarker) + endMarker.length;
-          
-          const newTargetContent = 
-            targetContent.substring(0, targetStartIndex) +
-            koramRulesBlock +
-            targetContent.substring(targetEndIndex);
-
-          fs.writeFileSync(targetAgentsPath, newTargetContent, 'utf8');
-          this.log(chalk.green(`✔ Actualizado bloque de reglas de Koram en AGENTS.md.`));
-        } else {
-          // Si no existen los marcadores pero tal vez el archivo tiene reglas antiguas de Koram o es de usuario
-          // Lo anexamos al final del archivo con un salto de línea
-          const newTargetContent = targetContent.trim() + '\n\n' + koramRulesBlock + '\n';
-          fs.writeFileSync(targetAgentsPath, newTargetContent, 'utf8');
-          this.log(chalk.yellow(`⚠️  Se anexaron las reglas de Koram al final del AGENTS.md existente.`));
-        }
-      }
-    } else {
-      this.log(chalk.yellow(`⚠️  No se encontró el archivo AGENTS.md de origen, se omite este paso.`));
+    if (!fs.existsSync(srcAgentsPath)) {
+      this.error(chalk.red(`❌ No se encontró el archivo de reglas de origen: ${srcAgentsPath}`));
+      return;
     }
 
-    // 2. Manejo de la Skill (skills/koram-cli)
+    const srcAgentsContent = fs.readFileSync(srcAgentsPath, 'utf8');
+    const startMarker = '<!-- KORAM_AGENT_RULES_START -->';
+    const endMarker = '<!-- KORAM_AGENT_RULES_END -->';
+
+    if (!srcAgentsContent.includes(startMarker) || !srcAgentsContent.includes(endMarker)) {
+      this.error(chalk.red(`❌ El archivo de origen AGENTS.md no contiene las marcas de control HTML necesarias.`));
+      return;
+    }
+
+    const startIndex = srcAgentsContent.indexOf(startMarker);
+    const endIndex = srcAgentsContent.indexOf(endMarker) + endMarker.length;
+    const koramRulesBlock = srcAgentsContent.substring(startIndex, endIndex);
+
     const srcSkillDir = path.join(srcDir, 'skills', 'koram-cli');
-    const targetSkillDir = path.join(targetDir, 'skills', 'koram-cli');
 
-    if (fs.existsSync(srcSkillDir)) {
-      if (fs.existsSync(targetSkillDir)) {
-        this.log(chalk.yellow(`⚡ Actualizando la habilidad 'koram-cli' en ${targetSkillDir}...`));
-        try {
-          fs.rmSync(targetSkillDir, { recursive: true, force: true });
-        } catch (err) {
-          this.warn(`No se pudo limpiar el directorio existente: ${err.message}. Intentando sobrescribir...`);
+    if (isGlobal) {
+      this.log(chalk.cyan(`🌐 Vinculando conocimiento de Koram de forma GLOBAL...`));
+
+      // 1. Reglas Globales para Antigravity / Gemini CLI
+      const globalRulesDirs = [
+        path.join(os.homedir(), '.gemini', 'antigravity', 'rules'),
+        path.join(os.homedir(), '.gemini', 'config', 'rules'),
+      ];
+
+      for (const rulesDir of globalRulesDirs) {
+        const destRuleFile = path.join(rulesDir, 'koram.md');
+        const res = syncContentWithMarkers(destRuleFile, koramRulesBlock, srcAgentsContent);
+        this.log(chalk.green(`✔ Reglas globales Antigravity [${res.action}]: ${destRuleFile}`));
+      }
+
+      // 2. Skill Global de Antigravity
+      if (fs.existsSync(srcSkillDir)) {
+        const globalSkillDirs = [
+          path.join(os.homedir(), '.gemini', 'config', 'skills', 'koram-cli'),
+          path.join(os.homedir(), '.gemini', 'antigravity', 'skills', 'koram-cli'),
+        ];
+
+        for (const skillDir of globalSkillDirs) {
+          try {
+            if (fs.existsSync(skillDir)) {
+              fs.rmSync(skillDir, { recursive: true, force: true });
+            }
+          } catch (e) { }
+          copyRecursiveSync(srcSkillDir, skillDir);
+          this.log(chalk.green(`✔ Habilidad técnica 'koram-cli' vinculada globalmente en: ${skillDir}`));
         }
       }
-      
-      const copyRecursiveSync = (src, dest) => {
-        const exists = fs.existsSync(src);
-        const stats = exists && fs.statSync(src);
-        const isDirectory = exists && stats.isDirectory();
-        if (isDirectory) {
-          if (!fs.existsSync(dest)) {
-            fs.mkdirSync(dest, { recursive: true });
-          }
-          fs.readdirSync(src).forEach((childItemName) => {
-            copyRecursiveSync(path.join(src, childItemName), path.join(dest, childItemName));
-          });
-        } else {
-          fs.mkdirSync(path.dirname(dest), { recursive: true });
-          fs.copyFileSync(src, dest);
-        }
-      };
 
-      copyRecursiveSync(srcSkillDir, targetSkillDir);
-      this.log(chalk.green(`✔ Habilidad 'koram-cli' vinculada y actualizada con éxito.`));
-    } else {
-      this.log(chalk.yellow(`⚠️  No se encontró la carpeta de habilidades de origen, se omite este paso.`));
+      this.log(chalk.magenta(`\n🧙‍♂️ ¡Conocimiento global de Koram activado para todos tus proyectos!`));
+      return;
     }
 
-    this.log(chalk.magenta(`\n🧙‍♂️ ¡Ritual de vinculación de conocimiento completado con éxito!`));
-    this.log(`Antigravity ahora sabe cómo trabajar con Koram en este entorno.`);
+    // Modo Local (por proyecto)
+    this.log(chalk.cyan(`🤖 Vinculando conocimiento de Koram en el proyecto local (${target.toUpperCase()})...`));
+    this.log(chalk.gray(`📍 Directorio del proyecto: ${projectRoot}`));
+
+    const syncTargets = [];
+
+    if (target === 'all' || target === 'agents' || target === 'root' || target === 'antigravity') {
+      // 1. Raíz del proyecto AGENTS.md (Estándar abierto para Antigravity, Copilot, Codex, Devin)
+      syncTargets.push({
+        name: 'Raíz AGENTS.md (Estándar multi-agente / Antigravity / Copilot)',
+        path: path.join(projectRoot, 'AGENTS.md'),
+      });
+    }
+
+    if (target === 'all' || target === 'antigravity') {
+      // 2. Antigravity Workspace Rules
+      syncTargets.push({
+        name: 'Antigravity Workspace Rule (.gemini/rules/koram.md)',
+        path: path.join(projectRoot, '.gemini', 'rules', 'koram.md'),
+      });
+
+      // 3. Antigravity Workspace Skill (.gemini/skills/koram-cli/)
+      if (fs.existsSync(srcSkillDir)) {
+        const localGeminiSkillDir = path.join(projectRoot, '.gemini', 'skills', 'koram-cli');
+        try {
+          if (fs.existsSync(localGeminiSkillDir)) {
+            fs.rmSync(localGeminiSkillDir, { recursive: true, force: true });
+          }
+        } catch (e) { }
+        copyRecursiveSync(srcSkillDir, localGeminiSkillDir);
+        this.log(chalk.green(`✔ Habilidad Antigravity 'koram-cli' instalada en: .gemini/skills/koram-cli`));
+      }
+    }
+
+    if (target === 'all' || target === 'cursor') {
+      // 4. Cursor Rules (.cursorrules)
+      syncTargets.push({
+        name: 'Cursor Rules (.cursorrules)',
+        path: path.join(projectRoot, '.cursorrules'),
+      });
+    }
+
+    if (target === 'all' || target === 'claude') {
+      // 5. Claude Code (CLAUDE.md)
+      syncTargets.push({
+        name: 'Claude Code (CLAUDE.md)',
+        path: path.join(projectRoot, 'CLAUDE.md'),
+      });
+    }
+
+    // Sincronizar todos los archivos de reglas seleccionados
+    for (const item of syncTargets) {
+      const res = syncContentWithMarkers(item.path, koramRulesBlock, srcAgentsContent);
+      this.log(chalk.green(`✔ ${item.name} [${res.action}]: ${path.relative(projectRoot, item.path)}`));
+    }
+
+    this.log(chalk.magenta(`\n🧙‍♂️ ¡Ritual de vinculación completado con éxito!`));
+    this.log(`Cualquier IA (Antigravity, Cursor, Claude Code, Copilot) ahora comprende y aplica Koram automáticamente en este proyecto.`);
   }
 }
 
-AgentAttachCommand.description = `Vincula o actualiza el conocimiento de Koram en la configuración de Antigravity (IA)
-Copia las reglas generales a AGENTS.md y la guía técnica a la sección de habilidades (skills).`;
+AgentAttachCommand.description = `Vincula y enseña el conocimiento y reglas de Koram a agentes de IA (Antigravity, Cursor, Claude Code, Copilot).
+Instala reglas en AGENTS.md (raíz), .gemini/ (Antigravity), .cursorrules (Cursor) y CLAUDE.md (Claude Code).`;
 
 AgentAttachCommand.flags = {
-  global: flags.boolean({ char: 'g', description: 'Instalar conocimiento globalmente (en ~/.gemini/config/)' }),
-  local: flags.boolean({ char: 'l', description: 'Instalar conocimiento localmente en el proyecto actual (en .agents/)', default: true })
+  global: flags.boolean({ char: 'g', description: 'Instalar conocimiento globalmente para Antigravity en ~/.gemini/' }),
+  target: flags.string({ char: 't', description: 'Destino específico: all (defecto), antigravity, cursor, claude, root', default: 'all' }),
+  local: flags.boolean({ char: 'l', description: 'Instalar conocimiento localmente en el proyecto actual (defecto)', default: true }),
 };
 
 module.exports = AgentAttachCommand;
+module.exports.syncContentWithMarkers = syncContentWithMarkers;
